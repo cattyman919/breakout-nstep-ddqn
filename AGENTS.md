@@ -129,7 +129,7 @@ env = gym.make("ALE/Breakout-v5", obs_type="ram")
   torch.manual_seed(seed)
   torch.set_num_threads(1)
   np.random.default_rng(seed)  # pass this generator explicitly; do not use np.random.seed
-  env.reset(seed=seed)         # first reset only
+  env.reset(seed=seed)  # first reset only
   env.action_space.seed(seed)
   ```
 
