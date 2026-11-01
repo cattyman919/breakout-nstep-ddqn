@@ -48,7 +48,8 @@ observations.
 ├── scripts/
 │   ├── train.py
 │   ├── measure_random.py
-│   └── plot_results.py
+│   ├── plot_results.py
+│   └── record_videos.py
 ├── tests/
 └── logs/
 ```

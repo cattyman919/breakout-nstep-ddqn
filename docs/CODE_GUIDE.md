@@ -33,6 +33,7 @@ scripts/train.py            Runs the training loop and saves the final model
 
 scripts/measure_random.py   Plays random games for the pilot baseline
 scripts/plot_results.py     Reads the CSVs and draws the figures
+scripts/record_videos.py    Records saved models playing the game
 src/exceptions.py           Project error types, used throughout
 ```
 
@@ -182,6 +183,10 @@ Networks and buffers raise the built-in `ValueError` when a caller passes bad in
 - **`run`:** sets up the loggers, calls `train` and saves the checkpoint.
 - **`save_checkpoint`:** writes the final model to `{log_dir}/checkpoints/{run_name}.pt`. It runs
   only after a successful run.
+- **`save_snapshot`:** writes the current model to
+  `{log_dir}/checkpoints/{run_name}/step_{step}.pt`, at the start of a run and every
+  `snapshot_interval` steps. Only runs whose seed is in `snapshot_seeds` save these (seed 1 by
+  default). It only reads the weights, so it can't change training.
 
 ### `scripts/measure_random.py`
 
@@ -197,6 +202,20 @@ Finds the run CSVs, groups them by variant and draws two figures:
   returns earned.
 
 Seeds are averaged only over the steps every run reached.
+
+### `scripts/record_videos.py`
+
+Makes one MP4 per saved model, for one seed of each variant, and writes them to
+`{log_dir}/videos/{run_name}/`. No window is needed, because frames come directly from the
+environment with `render_mode="rgb_array"`.
+
+- **`find_clips`:** lists the snapshots in step order, then the final model.
+- **`record_clip`:** loads a model and plays one game through `BreakoutGame`, with the same FIRE
+  rules and 1% random move rate as evaluation. It stops at game over or the `max_seconds` limit.
+- **`record_all`:** gives each clip its own game seed. The last snapshot and the final model hold
+  the same weights, so this is why `step_500000.mp4` and `final.mp4` show different games.
+
+Videos are built only from saved files, so they can be re-recorded at any time.
 
 ## Tests
 
@@ -215,6 +234,7 @@ makes rare cases such as truncation easy to trigger and exact results easy to ch
 | `test_train.py` | Schedule counts, replay contents, reproducibility, failure cleanup |
 | `test_measure_random.py` | Baseline returns and FIRE presses |
 | `test_plot_results.py` | Run discovery, seed averaging, figure output |
+| `test_record_videos.py` | Finding models, frame counts, the length limit, game seeds |
 
 ## Where to make common changes
 

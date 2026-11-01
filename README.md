@@ -80,6 +80,17 @@ uv run tensorboard --logdir logs/tensorboard
 uv run python -m scripts.plot_results
 ```
 
+**Record the videos:**
+
+```bash
+uv run python -m scripts.record_videos
+```
+
+This records seed 1 of each variant, one video per learning phase plus the final model. No window
+opens, and it needs no retraining. Each video is one game, so scores vary from clip to clip; use
+the figures to compare variants. Each frame is one agent step, so the default 30 frames per second
+plays at double game speed. Add `--fps 15` for real speed.
+
 **Run the tests:**
 
 ```bash
@@ -102,7 +113,7 @@ uv run python -m scripts.train --help
 ### Common problems
 
 - **`FileExistsError` when rerunning:** the logger won't overwrite existing results. To redo
-  a run, including after a crash, delete its CSV, TensorBoard folder and any checkpoint, then
+  a run, including after a crash, delete its CSV, TensorBoard folder and any checkpoints, then
   restart it from step 0. Runs can't resume.
 - **Slow training:** `--device` defaults to `mps`, but this small network ran faster on CPU
   in benchmarks. Pass `--device cpu`, and use the same device for every run in the study.
@@ -119,6 +130,8 @@ uv run python -m scripts.train --help
 | TensorBoard | `logs/tensorboard/{variant}_seed{seed}/` |
 | W&B | Project `breakout-nstep-ddqn`, with local files in `logs/wandb/` |
 | Final model | `logs/checkpoints/{variant}_seed{seed}.pt` |
+| Model snapshots (seed 1) | `logs/checkpoints/{variant}_seed1/step_{step}.pt` |
+| Videos (seed 1) | `logs/videos/{variant}_seed1/step_{step}.mp4` and `final.mp4` |
 | Pilot runs | `logs/pilot/` |
 | Figures | `docs/figures/ablation_comparison.png`, `docs/figures/overestimation_evaluation.png` |
 
@@ -159,7 +172,8 @@ so they can't be read directly against game scores.
 ├── scripts/
 │   ├── train.py           Config, CLI and training loop
 │   ├── measure_random.py  Random-policy baseline
-│   └── plot_results.py    Comparison and overestimation figures
+│   ├── plot_results.py    Comparison and overestimation figures
+│   └── record_videos.py   Videos of saved models playing
 ├── tests/                 Unit and integration tests
 └── logs/                  Run outputs, ignored by git
 ```

@@ -53,7 +53,7 @@ runs once the pilot in section 5 passes.
 | Ball launch | One automatic FIRE after each reset and lost life | Avoids spending steps waiting for FIRE; each press counts as one environment step and is not stored in replay |
 | Training metric logging | Mean over every 100 updates; a final partial batch is dropped | Gives $1{,}225$ rows per run and about 1% of the disk use of per-update logging |
 | Evaluation | Every $25{,}000$ steps: 5 games at $\epsilon = 0.01$ | Gives 20 evaluations per run; low $\epsilon$ stays close to greedy while escaping stuck states |
-| Checkpoints | Final model only | A crashed run is deleted and restarted from step 0 |
+| Checkpoints | Final model; snapshots for seed 1 at the start and every $100{,}000$ steps | A crashed run is deleted and restarted from step 0. Snapshots exist only to make videos, and don't change results |
 | CPU threads | `torch.set_num_threads(1)` | Reproducible timing and results; runs execute one at a time |
 | Unfinished game at the last step | Not logged | Its return is incomplete |
 
@@ -84,6 +84,8 @@ that group.
 | Weights & Biases | Project `breakout-nstep-ddqn`, local files in `logs/wandb/` |
 | Raw CSV | `logs/csv/{run_name}_metrics.csv` |
 | Final model | `logs/checkpoints/{run_name}.pt` |
+| Model snapshots | `logs/checkpoints/{run_name}/step_{step}.pt` |
+| Videos | `logs/videos/{run_name}/step_{step}.mp4` and `final.mp4` |
 | Ablation figure | `docs/figures/ablation_comparison.png` (300 DPI) |
 | Overestimation figure | `docs/figures/overestimation_evaluation.png` (300 DPI) |
 
@@ -140,7 +142,7 @@ uv run python -m scripts.plot_results
 Add `--wandb-mode offline` to run without network access, then upload the results
 with `wandb sync logs/wandb/offline-run-*`.
 
-If a run crashes, delete its CSV, TensorBoard folder and any checkpoint, then restart it from
+If a run crashes, delete its CSV, TensorBoard folder and any checkpoints, then restart it from
 step 0. Each reported result comes from one uninterrupted process.
 
 A run stopped by `TrainingError` because of NaN or infinite values is different, because it
@@ -183,6 +185,12 @@ predicted value against the actual return, averaged across seeds. A predicted va
 actual return shows overestimation by the policy itself.
 
 ## 8. Interpreting the results
+
+- **Videos.** `scripts/record_videos.py` shows one game per learning phase, for seed 1 of each
+  variant. A single game is noisy, so a later clip can score lower than an earlier one. Use videos
+  to illustrate play, and base claims on the figures. Seed 1 was chosen in advance, so it favors no
+  variant. Saving snapshots doesn't affect learning: a repeat of the `ddqn_n3` seed 0 pilot with
+  snapshots on gave a byte-identical CSV.
 
 - **What Panel B can show.** A lower mean $Q$ for Double DQN is consistent with reduced
   overestimation, but it is not proof on its own. The variants visit different states
