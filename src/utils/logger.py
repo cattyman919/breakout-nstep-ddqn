@@ -1,23 +1,48 @@
 """Dual-telemetry logging: TensorBoard, Weights & Biases and a raw CSV file.
 
-Every metric goes to all three sinks. The CSV holds two kinds of row, told apart
+Every metric goes to all three sinks. The CSV holds three kinds of row, told apart
 by which columns are filled:
 
 * episode rows: ``step, episode, episodic_return, episode_length, epsilon``
 * train rows: ``step, mean_q_value, td_loss``
+* evaluation rows: ``step, eval_predicted_q, eval_actual_return``
 
 Columns that do not apply to a row are left empty.
+
+``make_structured_logger`` builds the separate diagnostic logger. It records what the
+program is doing, as JSON, and never carries experiment metrics.
 """
 
 import csv
+import sys
 from collections import deque
 from collections.abc import Mapping
 from pathlib import Path
 from types import TracebackType
 from typing import Any, ClassVar, Literal, Self
 
+import structlog
 import wandb
 from torch.utils.tensorboard import SummaryWriter
+
+from src.exceptions import ConfigurationError
+
+
+def make_structured_logger(run_name: str, seed: int | None) -> Any:
+    """Return a logger writing one JSON object per entry to stderr.
+
+    It is built without ``structlog.configure``, so no global state changes. ``step`` is
+    null until a call passes the current step.
+    """
+    return structlog.wrap_logger(
+        structlog.PrintLogger(sys.stderr),
+        processors=[
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso", utc=True),
+            structlog.processors.format_exc_info,
+            structlog.processors.JSONRenderer(),
+        ],
+    ).bind(run_name=run_name, seed=seed, step=None)
 
 
 class DualLogger:
@@ -31,6 +56,9 @@ class DualLogger:
         log_dir: Root directory for all logs.
         overwrite: Replace an existing CSV for ``run_name``. By default an existing
             file raises ``FileExistsError`` so a rerun cannot destroy results.
+
+    Raises:
+        ConfigurationError: If ``run_name`` is not a single path component.
     """
 
     CSV_FIELDS: ClassVar[tuple[str, ...]] = (
@@ -41,6 +69,8 @@ class DualLogger:
         "mean_q_value",
         "td_loss",
         "epsilon",
+        "eval_predicted_q",
+        "eval_actual_return",
     )
     ROLLING_WINDOW: ClassVar[int] = 100
     WANDB_PROJECT: ClassVar[str] = "breakout-nstep-ddqn"
@@ -55,7 +85,7 @@ class DualLogger:
         overwrite: bool = False,
     ) -> None:
         if not run_name or Path(run_name).name != run_name:
-            raise ValueError(f"run_name must be a single path component, got {run_name!r}")
+            raise ConfigurationError(f"run_name must be a single path component, got {run_name!r}")
 
         csv_dir = log_dir / "csv"
         csv_dir.mkdir(parents=True, exist_ok=True)
@@ -128,6 +158,26 @@ class DualLogger:
             {"train/td_loss": float(td_loss), "train/mean_q_value": float(mean_q)},
             {"step": int(step), "td_loss": float(td_loss), "mean_q_value": float(mean_q)},
         )
+
+    def log_eval(self, step: int, predicted_q: float, actual_return: float) -> None:
+        """Record one evaluation point at environment step ``step``."""
+        self._dispatch(
+            int(step),
+            {"eval/predicted_q": float(predicted_q), "eval/actual_return": float(actual_return)},
+            {
+                "step": int(step),
+                "eval_predicted_q": float(predicted_q),
+                "eval_actual_return": float(actual_return),
+            },
+        )
+        self._csv_file.flush()
+
+    @property
+    def rolling_return(self) -> float | None:
+        """Mean raw return over the last 100 episodes, or None before the first episode."""
+        if not self._recent_returns:
+            return None
+        return sum(self._recent_returns) / len(self._recent_returns)
 
     def close(self, exit_code: int = 0) -> None:
         """Flush and close every sink. Safe to call more than once.
