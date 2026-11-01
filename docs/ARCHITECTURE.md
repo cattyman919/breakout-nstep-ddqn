@@ -195,8 +195,42 @@ Four rules prevent the common n-step bugs:
 | Reward signal | Sign-clipped per step for targets; raw for reported return |
 | Training boundary | Lost life or game over; environment resets only at game over or truncation |
 | Ball launch | One automatic FIRE after each reset and lost life |
-| Optimizer | Adam |
+| Optimizer | Adam with PyTorch defaults for the remaining parameters |
+| Network initialization | PyTorch default for `Linear` layers |
 | Loss | Huber (Smooth L1) |
 | Telemetry | `DualLogger` (`src/utils/logger.py`) |
 
-Numeric values are in [`EXPERIMENTS.md`](EXPERIMENTS.md).
+Replay sampling is with replacement. Numeric values are in
+[`EXPERIMENTS.md`](EXPERIMENTS.md).
+
+## 6. Periodic evaluation
+
+Mean predicted $Q$ alone cannot show overestimation, so each run also compares predicted
+values with the return the policy actually earns.
+
+**Procedure.** At each evaluation point, pause training and play complete games using the
+online network $\phi$ with a small fixed $\epsilon$. Automatic FIRE stays on. Evaluation
+performs no gradient updates, stores nothing in replay, and does not count toward
+`total_timesteps`.
+
+**Values compared.** For each state $s_i$ where the policy chose an action, across all games
+in the evaluation:
+
+$$\hat{V}_i = \max_a Q_{\phi}(s_i, a), \qquad R_i = \sum_{k=0}^{T_i - 1} \gamma^k r_{i+k+1}$$
+
+where $r$ is the clipped reward and $T_i$ is the number of steps until the next lost life or
+game over. This is the quantity $Q_\phi$ is trained to estimate. The logged values are the
+means $\overline{\hat{V}}$ and $\overline{R}$, and the estimated bias is their difference.
+
+**Rules.**
+
+- **Exclude unknown returns.** If a game is truncated, exclude the states of its final life,
+  because their returns are incomplete.
+- **Exclude automatic presses.** The FIRE press is not an agent decision, so it adds no $s_i$.
+  Its clipped reward, if any, is not part of any $R_i$.
+- **Isolate randomness.** Evaluation uses its own environment and random generator, both
+  seeded with `seed + 10,000`, so it does not change the course of training. The environment
+  is seeded on its first reset only.
+
+Because the policy keeps a small $\epsilon$, $\overline{R}$ slightly understates the return of
+the purely greedy policy that $\max_a Q_\phi$ refers to.

@@ -18,9 +18,11 @@ observations.
 
 | Component | Status |
 |---|---|
-| `src/utils/logger.py`, `scripts/plot_results.py` | Implemented |
-| `scripts/train.py` | Config and CLI only; the training loop raises `NotImplementedError` |
+| `src/utils/logger.py` | Implemented, except `log_eval` and the two evaluation CSV columns |
+| `scripts/plot_results.py` | Implemented, except `overestimation_evaluation.png` |
+| `scripts/train.py` | Config and CLI only; the training loop raises `NotImplementedError`. Still needs `log_dir`, `log_interval`, `eval_interval`, `eval_games` and `eval_epsilon` in `TrainConfig` |
 | `src/networks.py`, `src/buffers.py`, `src/agents.py` | Docstring-only stubs |
+| `scripts/measure_random.py`, `tests/` | Not created yet. Add pytest with `uv add --dev pytest` |
 
 ## Project tree
 
@@ -41,7 +43,9 @@ observations.
 │       └── logger.py
 ├── scripts/
 │   ├── train.py
+│   ├── measure_random.py
 │   └── plot_results.py
+├── tests/
 └── logs/
 ```
 
@@ -119,13 +123,16 @@ env = gym.make("ALE/Breakout-v5", obs_type="ram")
 
   ```python
   torch.manual_seed(seed)
+  torch.set_num_threads(1)
   np.random.default_rng(seed)  # pass this generator explicitly; do not use np.random.seed
   env.reset(seed=seed)         # first reset only
   env.action_space.seed(seed)
   ```
 
-  MPS results may still differ between runs and from CPU results, so report the device
-  used with each result.
+  One generator serves $\epsilon$-greedy and replay sampling. Every variant uses the same
+  seed list, with evaluation seeded separately from `seed + 10,000`. Seed 0 is reserved for
+  pilots. MPS results may still differ between runs and from CPU results, so report the
+  device used with each result.
 - **Formatting:** `ruff check` and `ruff format` with line length 100.
 
 Check before finishing a change:
@@ -134,7 +141,23 @@ Check before finishing a change:
 uvx ruff check --line-length 100 src scripts
 uvx ruff format --check --line-length 100 src scripts
 uv run --with mypy mypy --strict --ignore-missing-imports src scripts
+uv run python -m pytest   # once tests/ exists
 ```
+
+## Tests
+
+Silent bugs in target calculation invalidate results without crashing, so `tests/` must cover:
+
+- **N-step windows:** full windows, flushes at termination, truncation and lost lives, and no
+  duplicate or dropped transitions, for $n = 1, 3, 5$.
+- **Terminal mask:** $d_t$ is set by termination or a lost life, never by truncation, and spans
+  shorter than $n$ use $\gamma^m$.
+- **Targets:** DQN and Double DQN against hand-computed values.
+- **Rewards:** targets use clipped rewards, and logged returns use raw rewards.
+- **Polyak updates:** $\phi' \leftarrow \tau \phi + (1 - \tau)\phi'$ with the correct weighting.
+- **Evaluation returns:** $R_i$ stops at a lost life, and truncated final lives are excluded.
+
+Tests must not depend on W&B access or a full training run.
 
 ## Git commits
 
@@ -172,7 +195,7 @@ mood and under 72 characters. Add a body when the reason for the change isn't ob
 - **Commit dependency changes together.** Include `pyproject.toml` and `uv.lock` in the same
   commit.
 - **Don't commit run outputs or secrets.** That covers `logs/`, checkpoints, CSVs and W&B API
-  keys. The one exception to the ignore rules is the report figure, using the `git add -f`
+  keys. The one exception to the ignore rules is the report figures, using the `git add -f`
   command under Logging contract.
 - **Don't rewrite shared history.** No `git push --force`, and no amending or rebasing commits
   that have been pushed.
@@ -196,10 +219,14 @@ namespace package: `from src.utils.logger import DualLogger`.
 ## Logging contract
 
 - All training metrics go through `DualLogger`, never directly to a single sink.
+- The training loop averages TD loss and mean $Q$ over 100 updates before calling
+  `log_train_step`. Evaluation results go through `log_eval`.
+- Pilot runs use `--log-dir logs/pilot`, so `scripts/plot_results.py` never reads them. Follow
+  the pilot procedure in `docs/EXPERIMENTS.md` section 5 before starting study runs.
 - Run names are `{variant}_seed{seed}`. `scripts/plot_results.py` parses this format
   from `logs/csv/{run_name}_metrics.csv` and skips files that do not match.
 - `DualLogger` refuses to overwrite an existing CSV unless `overwrite=True`. Do not
   pass that flag for ablation runs.
-- `.gitignore` excludes `*.png`, `*.csv` and `*.pt`, so
-  `docs/figures/ablation_comparison.png` is untracked. To commit a report figure, use
+- `.gitignore` excludes `*.png`, `*.csv` and `*.pt`, so the figures in `docs/figures/` are
+  untracked. To commit a report figure, use `git add -f`, for example
   `git add -f docs/figures/ablation_comparison.png`.

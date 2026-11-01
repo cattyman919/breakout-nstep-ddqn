@@ -3,9 +3,10 @@
 A reinforcement learning study of whether **n-step returns improve Double DQN** on Atari
 Breakout, using the game's 128-byte RAM as the observation instead of pixels.
 
-> **Status: training can't run yet.** The docs, project setup, config and CLI, logger and
-> plotting script are done. The networks, buffers, agents and training loop are not
-> implemented, so `scripts.train` currently stops with `NotImplementedError`.
+> **Status: training can't run yet.** The docs, project setup and CLI are done, and the
+> logger and plotting script work apart from evaluation support. The networks, buffers, agents,
+> training loop, tests and evaluation are not implemented, so `scripts.train` currently stops
+> with `NotImplementedError`.
 
 ## What it compares
 
@@ -19,11 +20,13 @@ Breakout, using the game's 128-byte RAM as the observation instead of pixels.
 Each config trains for 500,000 steps with 5 seeds, for 20 runs in total. All agents share
 the same small MLP: 128 inputs, two hidden layers of 256 units, and 4 outputs.
 
-The results are compared on two measures:
+The results are compared on three measures:
 
 - **Episodic return:** how well each agent plays, in raw game points.
-- **Mean predicted Q-value:** whether Double DQN predicts lower values than DQN, which is
-  consistent with reduced overestimation.
+- **Mean predicted Q-value:** whether Double DQN predicts lower values than DQN.
+- **Predicted vs. actual value:** every 25,000 steps, evaluation games compare what each agent
+  predicts with the discounted return it actually earns. This is the direct test of
+  overestimation.
 
 ## Requirements
 
@@ -43,13 +46,17 @@ uv run wandb login   # skip this if you use offline mode
 Run all commands from the project root. The training commands work only after the training
 loop is implemented.
 
-**Train one run:**
+**Run the pilot first.** This checks that the agents learn before the settings freeze:
 
 ```bash
-uv run python -m scripts.train --variant ddqn_n3 --seed 1 --device cpu --wandb-mode offline
+uv run python -m scripts.measure_random
+uv run python -m scripts.train --variant ddqn_n3 --seed 0 --device cpu --wandb-mode offline --log-dir logs/pilot
+uv run python -m scripts.train --variant dqn_n1 --seed 0 --device cpu --wandb-mode offline --log-dir logs/pilot
 ```
 
-No full run has been timed yet, so use this one to estimate how long the study will take.
+Both variants must reach at least double the random-policy return. No full run has been timed
+yet, so use these to estimate how long the study will take. See
+[`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) section 5 for what to do if they fall short.
 
 **Train the full study:**
 
@@ -70,10 +77,16 @@ then upload afterward with `uv run wandb sync logs/wandb/offline-run-*`.
 uv run tensorboard --logdir logs/tensorboard
 ```
 
-**Make the comparison figure:**
+**Make the figures:**
 
 ```bash
 uv run python scripts/plot_results.py
+```
+
+**Run the tests:**
+
+```bash
+uv run python -m pytest
 ```
 
 **See all training options:**
@@ -85,7 +98,8 @@ uv run python -m scripts.train --help
 ### Common problems
 
 - **`FileExistsError` when rerunning:** the logger won't overwrite existing results. To redo
-  a run, delete its CSV first, for example `logs/csv/ddqn_n3_seed1_metrics.csv`.
+  a run, including after a crash, delete its CSV, TensorBoard folder and any checkpoint, then
+  restart it from step 0. Runs can't resume.
 - **Slow training:** `--device` defaults to `mps`, but this small network ran faster on CPU
   in benchmarks. Pass `--device cpu`, and use the same device for every run in the study.
 - **Import errors from `src`:** use `python -m scripts.train`, not `python scripts/train.py`.
@@ -99,10 +113,13 @@ uv run python -m scripts.train --help
 | Raw metrics | `logs/csv/{variant}_seed{seed}_metrics.csv` |
 | TensorBoard | `logs/tensorboard/{variant}_seed{seed}/` |
 | W&B | Project `breakout-nstep-ddqn`, with local files in `logs/wandb/` |
-| Figure | `docs/figures/ablation_comparison.png` |
+| Final model | `logs/checkpoints/{variant}_seed{seed}.pt` |
+| Pilot runs | `logs/pilot/` |
+| Figures | `docs/figures/ablation_comparison.png`, `docs/figures/overestimation_evaluation.png` |
 
-Git ignores `logs/`, `*.csv` and `*.png`, so keep copies of any results you need. To commit
-the report figure, use `git add -f docs/figures/ablation_comparison.png`.
+Git ignores `logs/`, `*.csv`, `*.pt` and `*.png`, so keep copies of any results you need. To commit
+a report figure, use `git add -f`, for example
+`git add -f docs/figures/ablation_comparison.png`.
 
 ## Training setup to report
 
@@ -132,7 +149,9 @@ so they can't be read directly against game scores.
 │   └── utils/logger.py    TensorBoard, W&B and CSV logging
 ├── scripts/
 │   ├── train.py           Config and CLI; training loop not implemented
-│   └── plot_results.py    Two-panel comparison figure
+│   ├── measure_random.py  Random-policy baseline; not implemented
+│   └── plot_results.py    Comparison figure; evaluation figure not implemented
+├── tests/                 Checks for n-step, target and evaluation logic; not implemented
 └── logs/                  Run outputs, ignored by git
 ```
 

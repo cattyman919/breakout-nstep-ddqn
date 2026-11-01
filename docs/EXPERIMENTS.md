@@ -33,21 +33,29 @@ frames.
 
 ### Implementation defaults
 
-These values are needed to make runs reproducible, and must stay fixed across all runs
-once training starts.
+These values are needed to make runs reproducible. They must stay fixed across all study
+runs once the pilot in section 5 passes.
 
 | Parameter | Value | Reason |
 |---|---|---|
 | Seeds per config | 5 (1 to 5) | Shows seed-to-seed spread at an affordable compute cost |
 | Learning starts | $10{,}000$ steps | Fills the buffer with varied transitions before the first update |
-| Train frequency | 1 update every 4 steps | Standard DQN ratio; gives $122{,}500$ updates per run |
+| Exploration during learning starts | Follows the $\epsilon$ schedule from step 0 ($\epsilon \approx 0.81$ at step $10{,}000$) | No separate random phase |
+| Train frequency | One update when `step > 10,000` and `step % 4 == 0` | Standard DQN ratio; gives exactly $122{,}500$ updates per run |
 | Polyak cadence | After each gradient update | |
 | Huber $\delta$ | $1.0$ | PyTorch `SmoothL1Loss` default |
 | Gradient clipping | None | The Huber loss already bounds per-sample gradients |
+| Replay sampling | Uniform, with replacement | Simple and standard |
+| Optimizer and network details | PyTorch defaults for Adam and `Linear` initialization | No reason to depart from them |
 | Reward clipping | Sign of the reward, per step, before $n$-step summation | Keeps target scale comparable across $n$; standard for Atari DQN |
 | Life-loss handling | Terminal for training targets; no environment reset | Gives a direct signal for dropping the ball; standard Atari DQN heuristic |
 | Frame stacking | None | Single RAM snapshot; matches the 128-dimension network input |
 | Ball launch | One automatic FIRE after each reset and lost life | Avoids spending steps waiting for FIRE; each press counts as one environment step and is not stored in replay |
+| Training metric logging | Mean over every 100 updates; a final partial batch is dropped | Gives $1{,}225$ rows per run and about 1% of the disk use of per-update logging |
+| Evaluation | Every $25{,}000$ steps: 5 games at $\epsilon = 0.01$ | Gives 20 evaluations per run; low $\epsilon$ stays close to greedy while escaping stuck states |
+| Checkpoints | Final model only | A crashed run is deleted and restarted from step 0 |
+| CPU threads | `torch.set_num_threads(1)` | Reproducible timing and results; runs execute one at a time |
+| Unfinished game at the last step | Not logged | Its return is incomplete |
 
 The sticky-action probability ($0.25$) and frame skip ($4$) are environment defaults.
 
@@ -57,12 +65,16 @@ The sticky-action probability ($0.25$) and frame skip ($4$) are environment defa
 |---|---|---|---|
 | Episodic return | Undiscounted sum of raw (unclipped) rewards per full game of 5 lives, plotted as a 100-episode rolling average | `log_episode` | `episodic_return` |
 | Episode length | Total steps survived per full game of 5 lives | `log_episode` | `episode_length` |
-| Mean predicted $Q$-value | Average of $\max_a Q_{\phi}(s, a)$ across each training mini-batch | `log_train_step` | `mean_q_value` |
-| TD loss | Huber (Smooth L1) loss per gradient update | `log_train_step` | `td_loss` |
+| Mean predicted $Q$-value | Average of $\max_a Q_{\phi}(s, a)$ across each training mini-batch, averaged over 100 updates | `log_train_step` | `mean_q_value` |
+| TD loss | Huber (Smooth L1) loss per gradient update, averaged over 100 updates | `log_train_step` | `td_loss` |
 | $\epsilon$ | Exploration rate at episode end | `log_episode` | `epsilon` |
+| Evaluation predicted value | $\overline{\hat{V}}$ from `ARCHITECTURE.md` section 6 | `log_eval` | `eval_predicted_q` |
+| Evaluation actual return | $\overline{R}$ from `ARCHITECTURE.md` section 6 | `log_eval` | `eval_actual_return` |
 
 Compute the mean predicted $Q$ under `torch.no_grad()` on the states $s_t$ of the same
-mini-batch used for the update, with the online network $\phi$.
+mini-batch used for the update, with the online network $\phi$. The training loop does the
+averaging and calls `log_train_step` once per 100 updates, at the step of the last update in
+that group.
 
 ## 4. Telemetry and output
 
@@ -71,15 +83,47 @@ mini-batch used for the update, with the online network $\phi$.
 | TensorBoard | `logs/tensorboard/{run_name}` |
 | Weights & Biases | Project `breakout-nstep-ddqn`, local files in `logs/wandb/` |
 | Raw CSV | `logs/csv/{run_name}_metrics.csv` |
-| Figure | `docs/figures/ablation_comparison.png` (300 DPI) |
+| Final model | `logs/checkpoints/{run_name}.pt` |
+| Ablation figure | `docs/figures/ablation_comparison.png` (300 DPI) |
+| Overestimation figure | `docs/figures/overestimation_evaluation.png` (300 DPI) |
 
-Each CSV row is either an episode row or a train row; columns that do not apply are
-empty. See the module docstring of `src/utils/logger.py`.
+Each CSV row is an episode row, a train row or an evaluation row; columns that do not apply
+are empty. See the module docstring of `src/utils/logger.py`.
 
-## 5. Running the study
+## 5. Pilot and freeze
+
+No full run has been done yet, so these settings may not learn within 500,000 steps. A pilot
+checks this before any study run starts.
+
+1. **Measure the baseline.** Play 100 games with a uniform random policy and automatic FIRE:
+   `uv run python -m scripts.measure_random`.
+2. **Run the pilots.** Train `ddqn_n3` and `dqn_n1` on seed 0, which is reserved for pilots:
+
+   ```bash
+   uv run python -m scripts.train --variant ddqn_n3 --seed 0 --device cpu --wandb-mode offline --log-dir logs/pilot
+   uv run python -m scripts.train --variant dqn_n1 --seed 0 --device cpu --wandb-mode offline --log-dir logs/pilot
+   ```
+
+3. **Apply the test.** The pilot passes if the final 100-episode mean return is at least
+   **double the random-policy return for both variants**.
+4. **If it passes:** freeze the settings, then start the study. Pilot results are not reported
+   and do not enter the figures.
+5. **If it fails:** adjust shared settings only (learning rate, update rate, $\tau$ or
+   $\epsilon$ schedule), clear `logs/pilot/`, and repeat from step 2. Never tune $n$ or the
+   algorithm. Allow **at most 3 tuning rounds**. After the third failure, stop: the project
+   owner decides whether to increase the step budget or run the study and report the outcome.
+
+Record the random-policy return and every pilot round in this file, and update this
+document's tables and `TrainConfig` if a setting changes.
+
+| Round | Settings changed | `ddqn_n3` return | `dqn_n1` return | Random return | Result |
+|---|---|---|---|---|---|
+| | | | | | |
+
+## 6. Running the study
 
 `scripts/train.py` currently provides the CLI only. These commands work once its
-training loop is implemented:
+training loop is implemented and the pilot has passed:
 
 ```bash
 for config in dqn_n1 ddqn_n1 ddqn_n3 ddqn_n5; do
@@ -93,6 +137,9 @@ uv run python scripts/plot_results.py
 
 Add `--wandb-mode offline` to run without network access, then upload the results
 with `wandb sync logs/wandb/offline-run-*`.
+
+If a run crashes, delete its CSV, TensorBoard folder and any checkpoint, then restart it from
+step 0. Each reported result comes from one uninterrupted process.
 
 ### Choosing a device
 
@@ -109,9 +156,11 @@ faster per action. The loop above therefore uses `--device cpu`. These are
 micro-benchmarks of network operations only, not of whole training runs. Use the same
 device for every run in the study.
 
-## 6. Figure
+## 7. Figures
 
 `scripts/plot_results.py` reads every CSV in `logs/csv/`.
+
+`ablation_comparison.png` has two panels:
 
 - **Panel A:** episodic return against environment steps for all four variants, as a
   100-episode rolling mean with a shaded band of one standard deviation. Windows are
@@ -121,19 +170,25 @@ device for every run in the study.
   step bins and across seeds. An arrow marks the signed gap between `dqn_n1` and
   `ddqn_n1` over the final 10% of steps.
 
-## 7. Interpreting the results
+`overestimation_evaluation.png` plots, for each variant at each evaluation point, the
+predicted value against the actual return, averaged across seeds. A predicted value above the
+actual return shows overestimation by the policy itself.
+
+## 8. Interpreting the results
 
 - **What Panel B can show.** A lower mean $Q$ for Double DQN is consistent with reduced
   overestimation, but it is not proof on its own. The variants visit different states
   and earn different returns, and a better policy should legitimately have higher
-  values. Stronger evidence is to compare each curve with the discounted return the
-  policy actually earns, as van Hasselt et al. (2016) did. That is outside the metrics
-  specified here.
+  values. Base overestimation claims on `overestimation_evaluation.png`, which compares
+  predictions with the discounted return the policy actually earns, following the approach
+  of van Hasselt et al. (2016).
+- **Evaluation noise.** Each evaluation point comes from only 5 games, so read trends and
+  differences across seeds rather than single points.
 - **Comparing $n$.** Differences among `ddqn_n1`, `ddqn_n3` and `ddqn_n5` in Panel B
   also reflect the uncorrected off-policy bias of $n$-step returns, not only
   overestimation.
-- **Training returns.** Reported returns come from the $\epsilon$-greedy behavior policy
-  at $\epsilon = 0.05$ after decay, with no separate greedy evaluation.
+- **Training returns.** Panel A returns come from the $\epsilon$-greedy behavior policy
+  at $\epsilon = 0.05$ after decay. Evaluation games record value estimates, not game scores.
 - **Q-value scale.** With clipped rewards and terminal life loss, Panel B is in units of
   discounted clipped return until the next lost life, not game points. It cannot be read
   against Panel A directly. Any comparison with an empirical return must use that same
