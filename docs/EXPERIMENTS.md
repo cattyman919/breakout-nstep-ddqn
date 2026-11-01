@@ -92,8 +92,8 @@ are empty. See the module docstring of `src/utils/logger.py`.
 
 ## 5. Pilot and freeze
 
-No full run has been done yet, so these settings may not learn within 500,000 steps. A pilot
-checks this before any study run starts.
+A pilot checks that these settings learn within 500,000 steps before any study run starts.
+The recorded round below passed, so the settings are frozen.
 
 1. **Measure the baseline.** Play 100 games with a uniform random policy and automatic FIRE:
    `uv run python -m scripts.measure_random`.
@@ -118,7 +118,10 @@ document's tables and `TrainConfig` if a setting changes.
 
 | Round | Settings changed | `ddqn_n3` return | `dqn_n1` return | Random return | Result |
 |---|---|---|---|---|---|
-| | | | | | |
+| 1 (2026-11-01) | None | 17.04 | 15.45 | 1.29 (threshold 2.58) | Pass |
+
+Each pilot took about 195 seconds on the development MacBook Air M4 with `--device cpu`,
+including evaluation, so the 20-run study should take a little over an hour. Run one at a time.
 
 ## 6. Running the study
 

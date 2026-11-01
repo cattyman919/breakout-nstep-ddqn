@@ -51,8 +51,8 @@ uv run python -m scripts.train --variant ddqn_n3 --seed 0 --device cpu --wandb-m
 uv run python -m scripts.train --variant dqn_n1 --seed 0 --device cpu --wandb-mode offline --log-dir logs/pilot
 ```
 
-Both variants must reach at least double the random-policy return. No full run has been timed
-yet, so use these to estimate how long the study will take. See
+Both variants must reach at least double the random-policy return. Each pilot took about 195
+seconds on an M4 MacBook Air, so the 20-run study should take a little over an hour. See
 [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) section 5 for what to do if they fall short.
 
 **Train the full study:**
