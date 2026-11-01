@@ -13,6 +13,7 @@ observations.
 | Overview and how to run | [`README.md`](README.md) |
 | MDP, network, target equations, n-step rules | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | Ablation matrix, hyperparameters, metrics | [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) |
+| How the code is organized | [`docs/CODE_GUIDE.md`](docs/CODE_GUIDE.md) |
 
 ### Implementation status
 
@@ -32,6 +33,7 @@ observations.
 ├── .gitignore
 ├── docs/
 │   ├── ARCHITECTURE.md
+│   ├── CODE_GUIDE.md
 │   └── EXPERIMENTS.md
 ├── src/
 │   ├── __init__.py

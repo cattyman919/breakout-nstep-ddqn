@@ -146,6 +146,7 @@ so they can't be read directly against game scores.
 ├── pyproject.toml
 ├── docs/
 │   ├── ARCHITECTURE.md    MDP, network, target equations, n-step rules
+│   ├── CODE_GUIDE.md      How the code is organized and how a run works
 │   └── EXPERIMENTS.md     Ablation matrix, hyperparameters, metrics, caveats
 ├── src/
 │   ├── exceptions.py      Project exception types
@@ -165,6 +166,7 @@ so they can't be read directly against game scores.
 
 ## Further reading
 
+- [`docs/CODE_GUIDE.md`](docs/CODE_GUIDE.md): how the code is organized and how a run works
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): the math and implementation rules
 - [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md): the full protocol and how to interpret results
 - [`AGENTS.md`](AGENTS.md): coding and engineering standards, and the checks to run before
