@@ -89,6 +89,13 @@ uv run python scripts/plot_results.py
 uv run python -m pytest
 ```
 
+**Lint and format with Ruff:**
+
+```bash
+uv run ruff check --fix .
+uv run ruff format .
+```
+
 **See all training options:**
 
 ```bash

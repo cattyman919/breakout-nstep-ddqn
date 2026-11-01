@@ -137,7 +137,10 @@ env = gym.make("ALE/Breakout-v5", obs_type="ram")
   seed list, with evaluation seeded separately from `seed + 10,000`. Seed 0 is reserved for
   pilots. MPS results may still differ between runs and from CPU results, so report the
   device used with each result.
-- **Formatting:** `ruff check` and `ruff format` with line length 100.
+- **Linting and formatting:** use Ruff for both, and do not add other linters or formatters
+  such as `black`, `isort` or `flake8`. Ruff is a dev dependency, configured in
+  `pyproject.toml` with line length 100. Run `uv run ruff format .` to format, and
+  `uv run ruff check --fix .` to apply safe lint fixes.
 
 ### Error handling
 
@@ -176,8 +179,8 @@ and `DualLogger`. Flushing and closing must also happen when a run fails.
 Check before finishing a change:
 
 ```bash
-uvx ruff check --line-length 100 src scripts
-uvx ruff format --check --line-length 100 src scripts
+uv run ruff check .
+uv run ruff format --check .
 uv run --with mypy mypy --strict --ignore-missing-imports src scripts
 uv run python -m pytest   # once tests/ exists
 ```
