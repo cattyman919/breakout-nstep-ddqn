@@ -62,5 +62,9 @@ class ScriptedEnv(gym.Env[NDArray[np.uint8], int]):
             {"lives": step.lives},
         )
 
+    def render(self) -> NDArray[np.uint8]:
+        """Return a small frame identified by the observation counter."""
+        return np.full((4, 6, 3), self._counter % 256, dtype=np.uint8)
+
     def close(self) -> None:
         self.closed = True

@@ -16,15 +16,18 @@ from numpy.typing import NDArray
 from src.exceptions import GameEnvironmentError
 
 
-def make_breakout_env() -> gym.Env[Any, Any]:
+def make_breakout_env(render_mode: str | None = None) -> gym.Env[Any, Any]:
     """Create the RAM Breakout environment.
+
+    Args:
+        render_mode: Passed to Gymnasium. ``"rgb_array"`` makes ``render`` return frames.
 
     Raises:
         GameEnvironmentError: If the environment cannot be created.
     """
     gym.register_envs(ale_py)
     try:
-        return gym.make("ALE/Breakout-v5", obs_type="ram")
+        return gym.make("ALE/Breakout-v5", obs_type="ram", render_mode=render_mode)
     except gym.error.Error as err:
         raise GameEnvironmentError(f"could not create the Breakout environment: {err}") from err
 
