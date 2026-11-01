@@ -143,6 +143,7 @@ so they can't be read directly against game scores.
 │   ├── ARCHITECTURE.md    MDP, network, target equations, n-step rules
 │   └── EXPERIMENTS.md     Ablation matrix, hyperparameters, metrics, caveats
 ├── src/
+│   ├── exceptions.py      Project exception types; not implemented
 │   ├── networks.py        Not implemented
 │   ├── buffers.py         Not implemented
 │   ├── agents.py          Not implemented
@@ -159,4 +160,5 @@ so they can't be read directly against game scores.
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): the math and implementation rules
 - [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md): the full protocol and how to interpret results
-- [`AGENTS.md`](AGENTS.md): coding conventions and the checks to run before finishing a change
+- [`AGENTS.md`](AGENTS.md): coding and engineering standards, and the checks to run before
+  finishing a change

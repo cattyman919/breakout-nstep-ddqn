@@ -141,6 +141,12 @@ with `wandb sync logs/wandb/offline-run-*`.
 If a run crashes, delete its CSV, TensorBoard folder and any checkpoint, then restart it from
 step 0. Each reported result comes from one uninterrupted process.
 
+A run stopped by `TrainingError` because of NaN or infinite values is different, because it
+may be a real outcome: value divergence can depend on the variant. Keep its logs and report it
+as a diverged run. Do not rerun it to replace the result, because that would hide instability
+in exactly the variants being compared. Investigate first if the cause looks like a bug; if it
+is one, fix it and rerun every run affected.
+
 ### Choosing a device
 
 Both devices are supported through `--device`. Measured on the development MacBook Air

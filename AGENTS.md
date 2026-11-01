@@ -22,7 +22,8 @@ observations.
 | `scripts/plot_results.py` | Implemented, except `overestimation_evaluation.png` |
 | `scripts/train.py` | Config and CLI only; the training loop raises `NotImplementedError`. Still needs `log_dir`, `log_interval`, `eval_interval`, `eval_games` and `eval_epsilon` in `TrainConfig` |
 | `src/networks.py`, `src/buffers.py`, `src/agents.py` | Docstring-only stubs |
-| `scripts/measure_random.py`, `tests/` | Not created yet. Add pytest with `uv add --dev pytest` |
+| `scripts/measure_random.py`, `tests/`, `src/exceptions.py` | Not created yet. Add dependencies with `uv add structlog` and `uv add --dev pytest` |
+| Engineering standards below | Not applied yet. `logger.py`, `train.py` and `plot_results.py` must be updated to meet them, and new modules must meet them from the start |
 
 ## Project tree
 
@@ -36,6 +37,7 @@ observations.
 │   └── EXPERIMENTS.md
 ├── src/
 │   ├── __init__.py
+│   ├── exceptions.py
 │   ├── networks.py
 │   ├── buffers.py
 │   ├── agents.py
@@ -112,13 +114,15 @@ env = gym.make("ALE/Breakout-v5", obs_type="ram")
 
 ## Coding conventions
 
-- **Typing:** Python 3.12+ with complete type hints on every function, including
-  return types. `mypy --strict` must pass.
+- **Typing:** Python 3.12+ with explicit type hints on every function, method and class
+  attribute, including return types. `mypy --strict` must pass.
 - **No global variables:** no mutable or constant module-level state. Put fixed values
   in a dataclass field, a `ClassVar`, or a function's local scope. Imports, function
   and class definitions, and the `__main__` guard are the only module-level statements.
 - **Configuration:** hyperparameters live in frozen dataclasses parsed with `tyro`.
   Pass config objects explicitly; never hard-code a hyperparameter at its point of use.
+  Validate values in `__post_init__` and raise `ConfigurationError` on invalid input. Do not
+  add `pydantic`; strict dataclasses cover this and already work with `tyro`.
 - **Reproducible seeding:** every run seeds all of the following from a single `seed`:
 
   ```python
@@ -135,6 +139,40 @@ env = gym.make("ALE/Breakout-v5", obs_type="ram")
   device used with each result.
 - **Formatting:** `ruff check` and `ruff format` with line length 100.
 
+### Error handling
+
+- **Specific exceptions only.** Never use a bare `except:`. Catch named exceptions such as
+  `ValueError`, `RuntimeError` or `KeyError`. A broad `except BaseException:` is allowed only
+  to release resources, and it must re-raise.
+- **Custom hierarchy.** `src/exceptions.py` defines `BaseProjectError` and its subclasses
+  `ConfigurationError`, `GameEnvironmentError` and `TrainingError`. Do not name a class
+  `EnvironmentError`, because that shadows Python's built-in alias for `OSError`.
+- **Context in every failure.** An exception either propagates with a descriptive message,
+  using `raise ... from err` when translating, or is caught, logged with its full stack trace
+  and handled. Never swallow one silently.
+- **Non-finite values stop the run.** Check the loss and gradients after each backward pass,
+  and raise `TrainingError` if any value is NaN or infinite, naming the step. See
+  `docs/EXPERIMENTS.md` section 6 for how to treat such a run.
+
+### Structured logging
+
+- **Diagnostics are JSON.** Use `structlog` to emit one JSON object per entry, including the
+  timestamp, run name, seed and step count. Before training starts, `step` is `null`.
+- **No module-level loggers.** The no-globals rule applies here too. Create a bound logger at
+  the entry point and pass it explicitly.
+- **Two separate systems.** `structlog` records what the program is doing, such as startup,
+  warnings, evaluation points and failures. `DualLogger` records experiment metrics. Do not
+  send metrics through `structlog`, and do not write a diagnostic entry on every step.
+- **`print` is for intended command output only**, such as the summary table from
+  `scripts/plot_results.py`. Warnings and errors go through the structured logger.
+
+### Resource management
+
+Use `with` statements for anything that must be released: file I/O, Gymnasium environments
+and `DualLogger`. Flushing and closing must also happen when a run fails.
+
+### Checks
+
 Check before finishing a change:
 
 ```bash
@@ -146,8 +184,19 @@ uv run python -m pytest   # once tests/ exists
 
 ## Tests
 
-Silent bugs in target calculation invalidate results without crashing, so `tests/` must cover:
+Silent bugs in target calculation invalidate results without crashing, so `tests/`, written
+with `pytest`, must have unit and integration coverage of:
 
+- **Networks:** output dimensions for single states and batches, and rejection of invalid
+  input shapes.
+- **Replay buffer overflow:** at capacity, the oldest transitions are overwritten and the size
+  stays at capacity. Filling the buffer is normal behavior, not an error.
+- **Invalid input:** wrong observation shapes and invalid configuration raise the documented
+  exceptions.
+- **Gradient stability:** an agent update changes the online network, leaves all values finite,
+  and raises `TrainingError` when given a NaN loss or gradient.
+- **Integration:** a very short run, on a reduced step budget in W&B offline mode, writes the
+  expected CSV and closes its environment and logger, including when it fails.
 - **N-step windows:** full windows, flushes at termination, truncation and lost lives, and no
   duplicate or dropped transitions, for $n = 1, 3, 5$.
 - **Terminal mask:** $d_t$ is set by termination or a lost life, never by truncation, and spans
@@ -157,7 +206,7 @@ Silent bugs in target calculation invalidate results without crashing, so `tests
 - **Polyak updates:** $\phi' \leftarrow \tau \phi + (1 - \tau)\phi'$ with the correct weighting.
 - **Evaluation returns:** $R_i$ stops at a lost life, and truncated final lives are excluded.
 
-Tests must not depend on W&B access or a full training run.
+Tests must not depend on W&B network access or a full training run.
 
 ## Git commits
 
