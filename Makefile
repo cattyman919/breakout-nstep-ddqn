@@ -11,7 +11,7 @@ SEED ?= 1
 VARIANTS ?= dqn_n1 ddqn_n1 ddqn_n3 ddqn_n5
 SEEDS ?= 1 2 3 4 5
 DEVICE ?= cpu
-WANDB ?= offline
+WANDB ?= online
 LOG_DIR ?= logs
 ARGS ?=
 
@@ -25,28 +25,35 @@ TRIAL_DIR := logs/smoke
 ##@ Help
 
 help: ## Show this list of commands
-	@echo "Usage: make <command> [VARIABLE=value ...]"
-	@awk 'BEGIN { FS = ":.*## " } \
-		/^##@ / { printf "\n%s:\n", substr($$0, 5) } \
-		/^[a-z][a-z-]*:.*## / { printf "  %-14s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
-	@echo ""
-	@echo "Variables (current value in brackets):"
-	@echo "  VARIANT        Variant for train [$(VARIANT)]"
-	@echo "  SEED           Seed for train and videos [$(SEED)]"
-	@echo "  VARIANTS       Variants for study, status and videos [$(VARIANTS)]"
-	@echo "  SEEDS          Seeds for study and status [$(SEEDS)]"
-	@echo "  DEVICE         cpu or mps; use cpu for the study [$(DEVICE)]"
-	@echo "  WANDB          W&B mode, offline or online [$(WANDB)]"
-	@echo "  LOG_DIR        Root folder for run outputs [$(LOG_DIR)]"
-	@echo "  ARGS           Extra options passed to the underlying command [$(ARGS)]"
-	@echo "  RUN            Run to delete with clean-run, such as ddqn_n3_seed1"
-	@echo ""
-	@echo "Examples:"
-	@echo "  make study                                Train all 20 runs"
-	@echo "  make train VARIANT=ddqn_n5 SEED=2         Train one run"
-	@echo "  make videos ARGS=\"--fps 15\"               Record videos at real game speed"
-	@echo "  make test ARGS=\"-k polyak\"                Run tests matching a word"
-	@echo "  make train ARGS=--help                    List every training option"
+	@if [ -t 1 ] && [ -z "$${NO_COLOR:-}" ]; then \
+		bold=$$'\033[1m'; dim=$$'\033[2m'; cyan=$$'\033[36m'; \
+		yellow=$$'\033[33m'; green=$$'\033[32m'; reset=$$'\033[0m'; \
+	else \
+		bold=""; dim=""; cyan=""; yellow=""; green=""; reset=""; \
+	fi; \
+	var() { printf "  %s%-14s%s %s %s[%s]%s\n" "$$yellow" "$$1" "$$reset" "$$2" "$$dim" "$$3" "$$reset"; }; \
+	example() { printf "  %s%-41s%s %s\n" "$$green" "$$1" "$$reset" "$$2"; }; \
+	printf "%sUsage:%s make %s<command>%s %s[VARIABLE=value ...]%s\n" \
+		"$$bold" "$$reset" "$$cyan" "$$reset" "$$yellow" "$$reset"; \
+	awk -v bold="$$bold" -v cyan="$$cyan" -v reset="$$reset" 'BEGIN { FS = ":.*## " } \
+		/^##@ / { printf "\n%s%s:%s\n", bold, substr($$0, 5), reset } \
+		/^[a-z][a-z-]*:.*## / { printf "  %s%-14s%s %s\n", cyan, $$1, reset, $$2 }' $(MAKEFILE_LIST); \
+	printf "\n%sVariables (current value in brackets):%s\n" "$$bold" "$$reset"; \
+	var VARIANT "Variant for train" '$(VARIANT)'; \
+	var SEED "Seed for train and videos" '$(SEED)'; \
+	var VARIANTS "Variants for study, status and videos" '$(VARIANTS)'; \
+	var SEEDS "Seeds for study and status" '$(SEEDS)'; \
+	var DEVICE "cpu or mps; use cpu for the study" '$(DEVICE)'; \
+	var WANDB "W&B mode, offline or online" '$(WANDB)'; \
+	var LOG_DIR "Root folder for run outputs" '$(LOG_DIR)'; \
+	var ARGS "Extra options passed to the underlying command" '$(ARGS)'; \
+	printf "  %s%-14s%s %s\n" "$$yellow" RUN "$$reset" "Run to delete with clean-run, such as ddqn_n3_seed1"; \
+	printf "\n%sExamples:%s\n" "$$bold" "$$reset"; \
+	example 'make study' "Train all 20 runs"; \
+	example 'make train VARIANT=ddqn_n5 SEED=2' "Train one run"; \
+	example 'make videos ARGS="--fps 15"' "Record videos at real game speed"; \
+	example 'make test ARGS="-k polyak"' "Run tests matching a word"; \
+	example 'make train ARGS=--help' "List every training option"
 
 usage: help ## Same as help
 

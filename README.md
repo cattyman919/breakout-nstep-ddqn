@@ -65,7 +65,8 @@ To list every command, run:
 make help
 ```
 
-Plain `make` and `make usage` show the same list. `make --help` shows GNU Make's own help instead,
+Plain `make` and `make usage` show the same list. It's in color in a terminal, and plain text when
+piped to a file or when the `NO_COLOR` environment variable is set. `make --help` shows GNU Make's own help instead,
 because Make handles that flag itself before reading the project's Makefile.
 
 To see every option a command accepts, pass `ARGS=--help`, as in `make train ARGS=--help`.
