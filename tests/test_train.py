@@ -268,7 +268,7 @@ def test_failure_closes_envs_and_logger_and_writes_no_checkpoint(
     assert all(env.closed for env in envs)
     assert exit_codes[0] == 1
     assert (tmp_path / "csv" / f"{config.run_name}_metrics.csv").exists()
-    assert not (tmp_path / "checkpoints").exists()
+    assert not (tmp_path / "checkpoints" / f"{config.run_name}.pt").exists()
     # W&B prints its own plain text to stderr too, so pick out the diagnostic entry.
     lines = capsys.readouterr().err.splitlines()
     entry = json.loads(next(line for line in lines if '"run_diverged"' in line))
@@ -297,6 +297,45 @@ def test_press_that_ends_the_game_is_a_normal_episode_end(
     episodes = [row for row in read_rows(path) if row["episodic_return"]]
     assert [float(row["episodic_return"]) for row in episodes] == [2.0, 2.0, 2.0]
     assert [int(row["episode_length"]) for row in episodes] == [1, 1, 1]
+
+
+def test_snapshots_cover_the_start_and_each_interval(tmp_path: Path) -> None:
+    config = short_config(tmp_path, snapshot_interval=50)
+    run_scripted(config, [])
+
+    directory = tmp_path / "checkpoints" / config.run_name
+    assert sorted(path.name for path in directory.iterdir()) == [
+        "step_000000.pt",
+        "step_000050.pt",
+        "step_000100.pt",
+    ]
+    snapshot = torch.load(directory / "step_000050.pt")
+    assert snapshot["step"] == 50
+    assert "layers.0.weight" in snapshot["online_state_dict"]
+
+
+def test_snapshots_hold_the_weights_of_their_own_step(tmp_path: Path) -> None:
+    config = short_config(tmp_path, snapshot_interval=50)
+    run_scripted(config, [])
+
+    directory = tmp_path / "checkpoints" / config.run_name
+    start = torch.load(directory / "step_000000.pt")["online_state_dict"]
+    later = torch.load(directory / "step_000100.pt")["online_state_dict"]
+    assert not torch.equal(start["layers.0.weight"], later["layers.0.weight"])
+
+
+def test_only_selected_seeds_save_snapshots(tmp_path: Path) -> None:
+    config = short_config(tmp_path, seed=2, snapshot_seeds=(1,))
+    run_scripted(config, [])
+    assert not (tmp_path / "checkpoints").exists()
+
+
+def test_snapshots_do_not_change_the_course_of_training(tmp_path: Path) -> None:
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    with_snapshots = short_config(tmp_path / "a", snapshot_seeds=(1,), snapshot_interval=10)
+    without_snapshots = short_config(tmp_path / "b", snapshot_seeds=())
+    assert run_scripted(with_snapshots, []) == run_scripted(without_snapshots, [])
 
 
 def test_integration_short_run_on_the_real_game(tmp_path: Path) -> None:
@@ -369,6 +408,7 @@ def test_default_settings_give_the_documented_schedule_counts() -> None:
         {"learning_starts": 1},
         {"eval_games": 0},
         {"log_interval": 0},
+        {"snapshot_interval": 0},
         {"terminal_on_life_loss": False},
     ],
 )

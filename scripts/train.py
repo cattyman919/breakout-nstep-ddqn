@@ -69,6 +69,10 @@ class TrainConfig:
     """Exploration rate during evaluation."""
     eval_seed_offset: int = 10_000
     """Added to seed for the evaluation environment and generator."""
+    snapshot_interval: int = 100_000
+    """Environment steps between model snapshots. The untrained model is saved too."""
+    snapshot_seeds: tuple[int, ...] = (1,)
+    """Seeds whose runs save snapshots, for scripts/record_videos.py."""
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -81,6 +85,7 @@ class TrainConfig:
             ("log_interval", self.log_interval),
             ("eval_interval", self.eval_interval),
             ("eval_games", self.eval_games),
+            ("snapshot_interval", self.snapshot_interval),
         ):
             if value <= 0:
                 raise ConfigurationError(f"{name} must be positive, got {value}")
@@ -140,6 +145,11 @@ class TrainConfig:
             double_q=self.double_q,
         )
 
+    @property
+    def saves_snapshots(self) -> bool:
+        """Whether this run saves model snapshots during training."""
+        return self.seed in self.snapshot_seeds
+
     def epsilon_at(self, step: int) -> float:
         """Return the exploration rate after ``step`` environment steps."""
         decay_steps = self.epsilon_decay_fraction * self.total_timesteps
@@ -186,6 +196,8 @@ def train(
             BreakoutGame(env_factory(), config.seed, auto_fire=config.auto_fire) as game,
             BreakoutGame(env_factory(), eval_seed, auto_fire=config.auto_fire) as eval_game,
         ):
+            if config.saves_snapshots:
+                save_snapshot(agent, config, step)
             observation = game.reset()
             episode = 0
             episode_return = 0.0
@@ -243,6 +255,9 @@ def train(
                         q_sum = 0.0
                         pending_updates = 0
 
+                if config.saves_snapshots and step % config.snapshot_interval == 0:
+                    save_snapshot(agent, config, step)
+
                 if step % config.eval_interval == 0:
                     evaluation = evaluate(
                         agent,
@@ -272,12 +287,22 @@ def train(
 
 def save_checkpoint(agent: DQNAgent, config: TrainConfig) -> Path:
     """Write the final model and return its path."""
-    directory = config.log_dir / "checkpoints"
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{config.run_name}.pt"
-    state = {name: value.cpu() for name, value in agent.online.state_dict().items()}
-    torch.save({"online_state_dict": state, "config": _hyperparams(config)}, path)
+    path = config.log_dir / "checkpoints" / f"{config.run_name}.pt"
+    _save_model(agent, config, path, config.total_timesteps)
     return path
+
+
+def save_snapshot(agent: DQNAgent, config: TrainConfig, step: int) -> Path:
+    """Write the model as it is at ``step`` and return its path. Training is not affected."""
+    path = config.log_dir / "checkpoints" / config.run_name / f"step_{step:06d}.pt"
+    _save_model(agent, config, path, step)
+    return path
+
+
+def _save_model(agent: DQNAgent, config: TrainConfig, path: Path, step: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    state = {name: value.cpu() for name, value in agent.online.state_dict().items()}
+    torch.save({"online_state_dict": state, "config": _hyperparams(config), "step": step}, path)
 
 
 def _hyperparams(config: TrainConfig) -> dict[str, Any]:
