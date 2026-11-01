@@ -122,8 +122,7 @@ document's tables and `TrainConfig` if a setting changes.
 
 ## 6. Running the study
 
-`scripts/train.py` currently provides the CLI only. These commands work once its
-training loop is implemented and the pilot has passed:
+Run these commands once the pilot has passed:
 
 ```bash
 for config in dqn_n1 ddqn_n1 ddqn_n3 ddqn_n5; do

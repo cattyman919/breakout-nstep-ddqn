@@ -18,12 +18,10 @@ observations.
 
 | Component | Status |
 |---|---|
-| `src/utils/logger.py` | Implemented, except `log_eval` and the two evaluation CSV columns |
-| `scripts/plot_results.py` | Implemented, except `overestimation_evaluation.png` |
-| `scripts/train.py` | Config and CLI only; the training loop raises `NotImplementedError`. Still needs `log_dir`, `log_interval`, `eval_interval`, `eval_games` and `eval_epsilon` in `TrainConfig` |
-| `src/networks.py`, `src/buffers.py`, `src/agents.py` | Docstring-only stubs |
-| `scripts/measure_random.py`, `tests/`, `src/exceptions.py` | Not created yet. Add dependencies with `uv add structlog` and `uv add --dev pytest` |
-| Engineering standards below | Not applied yet. `logger.py`, `train.py` and `plot_results.py` must be updated to meet them, and new modules must meet them from the start |
+| `src/` and `scripts/` | Implemented, to the engineering standards below |
+| `tests/` | Covers every area listed under Tests |
+| Pilot | See the table in `docs/EXPERIMENTS.md` section 5 |
+| 20-run study | Not started |
 
 ## Project tree
 
@@ -41,6 +39,8 @@ observations.
 │   ├── networks.py
 │   ├── buffers.py
 │   ├── agents.py
+│   ├── environment.py
+│   ├── evaluation.py
 │   └── utils/
 │       └── logger.py
 ├── scripts/
@@ -163,6 +163,8 @@ env = gym.make("ALE/Breakout-v5", obs_type="ram")
   timestamp, run name, seed and step count. Before training starts, `step` is `null`.
 - **No module-level loggers.** The no-globals rule applies here too. Create a bound logger at
   the entry point and pass it explicitly.
+- **Stderr is not purely JSON.** Diagnostics go to stderr, where W&B and ALE also print their
+  own plain text. Filter for lines starting with `{` when parsing.
 - **Two separate systems.** `structlog` records what the program is doing, such as startup,
   warnings, evaluation points and failures. `DualLogger` records experiment metrics. Do not
   send metrics through `structlog`, and do not write a diagnostic entry on every step.
@@ -262,8 +264,8 @@ uv run python -m scripts.train --variant ddqn_n3 --seed 1 --device cpu
 uv run python -m scripts.plot_results
 ```
 
-Use `python -m scripts.train`, not `python scripts/train.py`. The project is not
-installed as a package, so `src` is importable only with the root on `sys.path`.
+Use `python -m scripts.<name>` for every script, not `python scripts/<name>.py`. The project
+is not installed as a package, so `src` is importable only with the root on `sys.path`.
 
 `src/utils/` intentionally has no `__init__.py`, to match the tree. It imports as a
 namespace package: `from src.utils.logger import DualLogger`.

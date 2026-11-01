@@ -3,10 +3,8 @@
 A reinforcement learning study of whether **n-step returns improve Double DQN** on Atari
 Breakout, using the game's 128-byte RAM as the observation instead of pixels.
 
-> **Status: training can't run yet.** The docs, project setup and CLI are done, and the
-> logger and plotting script work apart from evaluation support. The networks, buffers, agents,
-> training loop, tests and evaluation are not implemented, so `scripts.train` currently stops
-> with `NotImplementedError`.
+> **Status: implemented; the 20-run study has not been run.** Pilot results are in
+> [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) section 5.
 
 ## What it compares
 
@@ -43,8 +41,7 @@ uv run wandb login   # skip this if you use offline mode
 
 ## How to run
 
-Run all commands from the project root. The training commands work only after the training
-loop is implemented.
+Run all commands from the project root.
 
 **Run the pilot first.** This checks that the agents learn before the settings freeze:
 
@@ -110,6 +107,7 @@ uv run python -m scripts.train --help
 - **Slow training:** `--device` defaults to `mps`, but this small network ran faster on CPU
   in benchmarks. Pass `--device cpu`, and use the same device for every run in the study.
 - **Import errors from `src`:** use `python -m scripts.train`, not `python scripts/train.py`.
+  The same applies to the other scripts.
 - **`NameNotFound` for `ALE/Breakout-ram-v5`:** current `ale-py` no longer has that ID. Use
   `gym.make("ALE/Breakout-v5", obs_type="ram")`.
 
@@ -150,16 +148,18 @@ so they can't be read directly against game scores.
 │   ├── ARCHITECTURE.md    MDP, network, target equations, n-step rules
 │   └── EXPERIMENTS.md     Ablation matrix, hyperparameters, metrics, caveats
 ├── src/
-│   ├── exceptions.py      Project exception types; not implemented
-│   ├── networks.py        Not implemented
-│   ├── buffers.py         Not implemented
-│   ├── agents.py          Not implemented
-│   └── utils/logger.py    TensorBoard, W&B and CSV logging
+│   ├── exceptions.py      Project exception types
+│   ├── networks.py        Q-network
+│   ├── buffers.py         N-step window and replay buffer
+│   ├── agents.py          DQN and Double DQN agent
+│   ├── environment.py     Game session: lives, automatic FIRE, clipped rewards
+│   ├── evaluation.py      Predicted values against earned returns
+│   └── utils/logger.py    TensorBoard, W&B and CSV logging; JSON diagnostics
 ├── scripts/
-│   ├── train.py           Config and CLI; training loop not implemented
-│   ├── measure_random.py  Random-policy baseline; not implemented
-│   └── plot_results.py    Comparison figure; evaluation figure not implemented
-├── tests/                 Checks for n-step, target and evaluation logic; not implemented
+│   ├── train.py           Config, CLI and training loop
+│   ├── measure_random.py  Random-policy baseline
+│   └── plot_results.py    Comparison and overestimation figures
+├── tests/                 Unit and integration tests
 └── logs/                  Run outputs, ignored by git
 ```
 
