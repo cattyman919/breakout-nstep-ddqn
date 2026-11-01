@@ -1,15 +1,15 @@
-"""Generate the two-panel ablation figure from the CSV logs.
+"""Generate the ablation and overestimation figures from the CSV logs.
 
 Run from the project root::
 
-    uv run python scripts/plot_results.py
+    uv run python -m scripts.plot_results
 
-Panel A shows the 100-episode rolling mean of episodic return with a band of one
+The ablation figure has two panels. Panel A shows the 100-episode rolling mean of episodic return with a band of one
 standard deviation. Panel B shows the mean predicted Q-value. Both use environment
 steps on the x-axis.
 
-Run files are named ``{variant}_metrics.csv`` or ``{variant}_seed{N}_metrics.csv``.
-Runs of one variant are averaged on a shared step grid limited to the steps every
+Run files are named ``{variant}_seed{N}_metrics.csv``; other files are skipped with a
+warning. Runs of one variant are averaged on a shared step grid limited to the steps every
 run reached. The band is the pooled standard deviation::
 
     sqrt(mean(rolling variance per run) + variance(rolling mean across runs))
@@ -17,13 +17,17 @@ run reached. The band is the pooled standard deviation::
 so it combines episode-to-episode and seed-to-seed spread, and reduces to the plain
 rolling standard deviation for a single run. Windows are partial for the first
 episodes of a run; a point needs at least ``min_periods`` episodes.
+
+The overestimation figure has one panel per variant, comparing the predicted value with the
+discounted return earned at each evaluation point. Seeds are averaged at the evaluation steps
+every run reached.
 """
 
 import re
-import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import matplotlib
 import numpy as np
@@ -31,8 +35,12 @@ import pandas as pd
 import tyro
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
+from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 from numpy.typing import NDArray
+
+from src.exceptions import ConfigurationError
+from src.utils.logger import make_structured_logger
 
 
 @dataclass(frozen=True)
@@ -42,7 +50,9 @@ class PlotConfig:
     csv_dir: Path = Path("logs/csv")
     """Directory holding ``*_metrics.csv`` files."""
     output: Path = Path("docs/figures/ablation_comparison.png")
-    """Output image path."""
+    """Output image path for the ablation figure."""
+    overestimation_output: Path = Path("docs/figures/overestimation_evaluation.png")
+    """Output image path for the overestimation figure."""
     window: int = 100
     """Rolling window, in episodes, for Panel A."""
     min_periods: int = 10
@@ -51,6 +61,16 @@ class PlotConfig:
     """Points per curve; also the number of step bins for Q-values."""
     dpi: int = 300
     """Output resolution."""
+
+    def __post_init__(self) -> None:
+        if not 2 <= self.min_periods <= self.window:
+            raise ConfigurationError(
+                f"min_periods must be between 2 and window ({self.window}), got {self.min_periods}"
+            )
+        if self.grid_points < 2:
+            raise ConfigurationError(f"grid_points must be at least 2, got {self.grid_points}")
+        if self.dpi <= 0:
+            raise ConfigurationError(f"dpi must be positive, got {self.dpi}")
 
 
 @dataclass(frozen=True)
@@ -69,6 +89,16 @@ class Curve:
     steps: NDArray[np.float64]
     values: NDArray[np.float64]
     spread: NDArray[np.float64] | None
+    num_runs: int
+
+
+@dataclass(frozen=True)
+class EvalCurve:
+    """One variant's predicted values and earned returns at each evaluation point."""
+
+    steps: NDArray[np.float64]
+    predicted: NDArray[np.float64]
+    actual: NDArray[np.float64]
     num_runs: int
 
 
@@ -97,16 +127,16 @@ def variant_styles() -> dict[str, SeriesStyle]:
     }
 
 
-def discover_runs(csv_dir: Path, variants: Sequence[str]) -> dict[str, list[Path]]:
+def discover_runs(csv_dir: Path, variants: Sequence[str], log: Any) -> dict[str, list[Path]]:
     """Group CSV paths by variant, warning about files that match no variant."""
     pattern = re.compile(
-        rf"^(?P<variant>{'|'.join(map(re.escape, variants))})(?:_seed\d+)?_metrics\.csv$"
+        rf"^(?P<variant>{'|'.join(map(re.escape, variants))})_seed\d+_metrics\.csv$"
     )
     runs: dict[str, list[Path]] = {}
     for path in sorted(csv_dir.glob("*.csv")):
         match = pattern.match(path.name)
         if match is None:
-            print(f"warning: skipping {path.name}: unrecognized run name", file=sys.stderr)
+            log.warning("skipping_unrecognized_run", file=path.name)
             continue
         runs.setdefault(match["variant"], []).append(path)
     return runs
@@ -191,6 +221,25 @@ def q_curve(paths: Sequence[Path], config: PlotConfig) -> Curve | None:
 
     values = np.stack([np.interp(grid, steps, value) for steps, value in runs])
     return Curve(grid, values.mean(axis=0), None, len(runs))
+
+
+def eval_curve(paths: Sequence[Path]) -> EvalCurve | None:
+    """Average one variant's evaluations across runs, at the steps every run reached."""
+    predicted: list[pd.Series[float]] = []
+    actual: list[pd.Series[float]] = []
+    for path in paths:
+        predicted.append(load_metric(path, "eval_predicted_q").set_index("step")["value"])
+        actual.append(load_metric(path, "eval_actual_return").set_index("step")["value"])
+    predicted_by_run = pd.concat(predicted, axis=1, join="inner")
+    actual_by_run = pd.concat(actual, axis=1, join="inner")
+    if predicted_by_run.empty or actual_by_run.empty:
+        return None
+    return EvalCurve(
+        predicted_by_run.index.to_numpy(dtype=np.float64),
+        predicted_by_run.mean(axis=1).to_numpy(dtype=np.float64),
+        actual_by_run.mean(axis=1).to_numpy(dtype=np.float64),
+        len(paths),
+    )
 
 
 def tail_mean(curve: Curve, fraction: float = 0.1) -> float:
@@ -346,6 +395,78 @@ def render_figure(
         plt.close(figure)
 
 
+def render_overestimation_figure(
+    curves: Mapping[str, EvalCurve],
+    styles: Mapping[str, SeriesStyle],
+    config: PlotConfig,
+) -> None:
+    """Draw predicted value against earned return, in one panel per variant."""
+    chrome = Chrome()
+    with plt.rc_context({"font.family": "sans-serif", "font.sans-serif": ["Arial", "DejaVu Sans"]}):
+        figure, axes = plt.subplots(
+            1, len(styles), figsize=(13.5, 3.8), sharex=True, sharey=True, facecolor=chrome.surface
+        )
+        for ax, (variant, style) in zip(axes, styles.items(), strict=True):
+            _style_axes(ax, style.legend, "", chrome)
+            curve = curves.get(variant)
+            if curve is None:
+                ax.text(
+                    0.5,
+                    0.5,
+                    "No data",
+                    transform=ax.transAxes,
+                    ha="center",
+                    color=chrome.secondary,
+                )
+                continue
+            ax.plot(curve.steps, curve.predicted, color=style.color, linewidth=2)
+            ax.plot(
+                curve.steps, curve.actual, color=style.color, linewidth=2, linestyle=(0, (4, 2))
+            )
+        axes[0].set_ylabel("Discounted clipped return", color=chrome.secondary)
+        for ax, variant in zip(axes, styles, strict=True):
+            curve = curves.get(variant)
+            if curve is not None:
+                _label_line_ends(
+                    ax,
+                    [
+                        (float(curve.predicted[-1]), "Predicted"),
+                        (float(curve.actual[-1]), "Actual"),
+                    ],
+                    chrome,
+                )
+
+        handles = [
+            Line2D([], [], color=chrome.ink, linewidth=2, label="Predicted value"),
+            Line2D(
+                [],
+                [],
+                color=chrome.ink,
+                linewidth=2,
+                linestyle=(0, (4, 2)),
+                label="Actual discounted return",
+            ),
+        ]
+        figure.legend(
+            handles=handles,
+            loc="upper center",
+            ncols=2,
+            frameon=False,
+            fontsize=9.5,
+            labelcolor=chrome.ink,
+            handlelength=3,
+        )
+        figure.tight_layout(rect=(0, 0, 1, 0.91), w_pad=4.5)
+        config.overestimation_output.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(
+            config.overestimation_output,
+            dpi=config.dpi,
+            facecolor=chrome.surface,
+            bbox_inches="tight",
+        )
+        plt.close(figure)
+
+
 def print_summary(
     returns: Mapping[str, Curve], q_values: Mapping[str, Curve], variants: Sequence[str]
 ) -> None:
@@ -366,40 +487,53 @@ def print_summary(
         )
 
 
-def main() -> int:
-    """Build the figure and return a process exit code."""
-    config = tyro.cli(PlotConfig)
-    if not 2 <= config.min_periods <= config.window:
-        print("error: --min-periods must be between 2 and --window", file=sys.stderr)
-        return 2
-
+def build_figures(config: PlotConfig, log: Any) -> int:
+    """Build both figures and return a process exit code."""
     matplotlib.use("Agg")
     styles = variant_styles()
-    runs = discover_runs(config.csv_dir, list(styles))
+    runs = discover_runs(config.csv_dir, list(styles), log)
     if not runs:
-        print(f"error: no recognized run CSVs in {config.csv_dir}", file=sys.stderr)
+        log.error("no_recognized_runs", csv_dir=str(config.csv_dir))
         return 1
 
     returns: dict[str, Curve] = {}
     q_values: dict[str, Curve] = {}
+    evaluations: dict[str, EvalCurve] = {}
     for variant in styles:
         paths = runs.get(variant, [])
         if not paths:
-            print(f"warning: no runs for {variant}", file=sys.stderr)
+            log.warning("no_runs_for_variant", variant=variant)
             continue
         if (curve := return_curve(paths, config)) is not None:
             returns[variant] = curve
         else:
-            print(f"warning: too few episodes to plot {variant} returns", file=sys.stderr)
+            log.warning("too_few_episodes", variant=variant)
         if (curve := q_curve(paths, config)) is not None:
             q_values[variant] = curve
         else:
-            print(f"warning: too few updates to plot {variant} Q-values", file=sys.stderr)
+            log.warning("too_few_updates", variant=variant)
+        if (evaluation := eval_curve(paths)) is not None:
+            evaluations[variant] = evaluation
+        else:
+            log.warning("no_shared_evaluations", variant=variant)
 
     render_figure(returns, q_values, styles, config)
+    render_overestimation_figure(evaluations, styles, config)
     print_summary(returns, q_values, list(styles))
     print(f"Saved {config.output}")
+    print(f"Saved {config.overestimation_output}")
     return 0
+
+
+def main() -> int:
+    """Parse the CLI, build the figures and return a process exit code."""
+    config = tyro.cli(PlotConfig)
+    log = make_structured_logger("plot_results", None)
+    try:
+        return build_figures(config, log)
+    except (OSError, ValueError):
+        log.exception("plotting_failed")
+        return 1
 
 
 if __name__ == "__main__":

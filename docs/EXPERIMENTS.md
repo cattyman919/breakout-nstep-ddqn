@@ -132,7 +132,7 @@ for config in dqn_n1 ddqn_n1 ddqn_n3 ddqn_n5; do
   done
 done
 
-uv run python scripts/plot_results.py
+uv run python -m scripts.plot_results
 ```
 
 Add `--wandb-mode offline` to run without network access, then upload the results

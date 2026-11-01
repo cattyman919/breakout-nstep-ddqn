@@ -259,7 +259,7 @@ Run everything from the project root. Paths such as `logs/` are relative to it.
 
 ```bash
 uv run python -m scripts.train --variant ddqn_n3 --seed 1 --device cpu
-uv run python scripts/plot_results.py
+uv run python -m scripts.plot_results
 ```
 
 Use `python -m scripts.train`, not `python scripts/train.py`. The project is not

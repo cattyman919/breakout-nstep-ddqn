@@ -80,7 +80,7 @@ uv run tensorboard --logdir logs/tensorboard
 **Make the figures:**
 
 ```bash
-uv run python scripts/plot_results.py
+uv run python -m scripts.plot_results
 ```
 
 **Run the tests:**
