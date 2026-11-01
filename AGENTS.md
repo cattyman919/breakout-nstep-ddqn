@@ -29,6 +29,7 @@ observations.
 ```text
 ├── AGENTS.md
 ├── README.md
+├── Makefile
 ├── pyproject.toml
 ├── .gitignore
 ├── docs/
@@ -181,7 +182,7 @@ and `DualLogger`. Flushing and closing must also happen when a run fails.
 
 ### Checks
 
-Check before finishing a change:
+Check before finishing a change, with `make check` or these commands:
 
 ```bash
 uv run ruff check .
@@ -260,7 +261,9 @@ mood and under 72 characters. Add a body when the reason for the change isn't ob
 
 ## Running
 
-Run everything from the project root. Paths such as `logs/` are relative to it.
+Run everything from the project root. Paths such as `logs/` are relative to it. The `Makefile`
+wraps every command below; run `make help` to list them. Add new commands to it with a `## `
+description, which is what `make help` displays.
 
 ```bash
 uv run python -m scripts.train --variant ddqn_n3 --seed 1 --device cpu

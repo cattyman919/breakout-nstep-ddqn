@@ -18,7 +18,7 @@ Breakout, using the game's 128 bytes of RAM as the observation instead of pixels
 - [Step 7: Make the figures](#step-7-make-the-figures)
 - [Step 8: Record the videos](#step-8-record-the-videos)
 - [Output files](#output-files)
-- [Command options](#command-options)
+- [Make commands](#make-commands)
 - [Troubleshooting](#troubleshooting)
 - [Reporting the results](#reporting-the-results)
 - [Development checks](#development-checks)
@@ -47,21 +47,28 @@ The results are compared on three measures:
 
 ## Quick start
 
-Run these from the project root to go from a fresh checkout to figures and videos:
+Every task has a `make` command. Run these from the project root to go from a fresh checkout to
+figures and videos:
 
 ```bash
-uv sync
-uv run python -m pytest
-
-for variant in dqn_n1 ddqn_n1 ddqn_n3 ddqn_n5; do
-  for seed in 1 2 3 4 5; do
-    uv run python -m scripts.train --variant "$variant" --seed "$seed" --device cpu --wandb-mode offline
-  done
-done
-
-uv run python -m scripts.plot_results
-uv run python -m scripts.record_videos
+make setup     # install everything
+make test      # check the code works
+make study     # train all 20 runs, a little over an hour
+make status    # confirm that all 20 finished
+make figures   # make the comparison figures
+make videos    # record the learning-phase videos
 ```
+
+To list every command, run:
+
+```bash
+make help
+```
+
+Plain `make` and `make usage` show the same list. `make --help` shows GNU Make's own help instead,
+because Make handles that flag itself before reading the project's Makefile.
+
+To see every option a command accepts, pass `ARGS=--help`, as in `make train ARGS=--help`.
 
 The steps below explain each command, what to expect from it, and what to do if it fails.
 
@@ -70,6 +77,7 @@ The steps below explain each command, what to expect from it, and what to do if 
 **You need:**
 
 - [uv](https://docs.astral.sh/uv/), which installs Python 3.12 and all dependencies
+- `make`, which macOS includes with the Xcode Command Line Tools (`xcode-select --install`)
 - A Mac with Apple Silicon, which is the target hardware. Other machines can run on CPU, but only
   the Mac has been tested
 - About 100 MB of free disk space for the study's outputs, on top of the dependencies
@@ -78,25 +86,24 @@ The steps below explain each command, what to expect from it, and what to do if 
 **Install the dependencies:**
 
 ```bash
-uv sync
+make setup
 ```
 
-**Choose how to use W&B.** Offline is simpler and is what the commands in this guide use:
+**Choose how to use W&B.** Offline is the default and needs no account:
 
 | Mode | Setup | How to use it |
 |---|---|---|
-| Offline | None | Add `--wandb-mode offline` to training commands. You can upload afterward |
-| Online | Run `uv run wandb login` | Leave out `--wandb-mode`, because online is the default |
+| Offline | None | Nothing to add. Upload afterward with `make sync` if you want to |
+| Online | Run `make wandb-login` | Add `WANDB=online`, as in `make study WANDB=online` |
 
 Online sync hasn't been tested on this project. All the runs so far used offline mode.
 
-Run every command from the project root, in the form `python -m scripts.<name>`. Running
-`python scripts/<name>.py` causes import errors.
+Run every `make` command from the project root.
 
 ## Step 2: Run the tests
 
 ```bash
-uv run python -m pytest
+make test
 ```
 
 This takes about 10 seconds and needs no network access or W&B account. Every test should pass.
@@ -104,34 +111,29 @@ This takes about 10 seconds and needs no network access or W&B account. Every te
 To run part of the suite:
 
 ```bash
-uv run python -m pytest tests/test_buffers.py   # one file
-uv run python -m pytest -k polyak               # tests whose names match a word
-uv run python -m pytest -v                      # list each test as it runs
+make test ARGS=tests/test_buffers.py   # one file
+make test ARGS="-k polyak"             # tests whose names match a word
+make test ARGS=-v                      # list each test as it runs
 ```
 
 [`docs/CODE_GUIDE.md`](docs/CODE_GUIDE.md) lists what each test file covers.
 
 ## Step 3: Do a short trial run
 
-Before starting the study, you can try the whole workflow on a short run. This takes less than a
-minute and keeps its files in `logs/smoke`, apart from any real results:
+Before starting the study, you can try the whole workflow on a short run:
 
 ```bash
-uv run python -m scripts.train --variant ddqn_n3 --seed 1 --device cpu --wandb-mode offline \
-  --log-dir logs/smoke --total-timesteps 30000 --learning-starts 1000 \
-  --eval-interval 10000 --eval-games 1 --snapshot-interval 10000
-
-uv run python -m scripts.plot_results --csv-dir logs/smoke/csv \
-  --output logs/smoke/comparison.png --overestimation-output logs/smoke/overestimation.png
-
-uv run python -m scripts.record_videos --variants ddqn_n3 --log-dir logs/smoke
+make trial
 ```
 
-The figures will say "No data" for the variants you didn't train, which is expected here. Delete
-the trial when you're done:
+This trains for 30,000 steps, then makes figures and videos, all in less than a minute. Its files go
+in `logs/smoke`, apart from any real results, and running it again replaces them. The figures say
+"No data" for the variants it didn't train, which is expected.
+
+Delete the trial when you're done:
 
 ```bash
-rm -rf logs/smoke
+make trial-clean
 ```
 
 ## Step 4: Run the pilot (optional)
@@ -146,25 +148,20 @@ can skip to step 5.** The recorded result was:
 To repeat it, clear the old results first, because runs won't overwrite existing ones:
 
 ```bash
-rm -rf logs/pilot
-uv run python -m scripts.measure_random
-uv run python -m scripts.train --variant ddqn_n3 --seed 0 --device cpu --wandb-mode offline --log-dir logs/pilot
-uv run python -m scripts.train --variant dqn_n1 --seed 0 --device cpu --wandb-mode offline --log-dir logs/pilot
+make pilot-clean
+make pilot
 ```
 
-Each pilot run takes about 3 minutes and prints its final return as `final_return_100` in the
-`run_finished` line. If a pilot falls short, follow
-[`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) section 5.
+This measures the random-policy baseline, then runs both pilots on seed 0, in about 6 minutes. Each
+run prints its final return as `final_return_100` in the `run_finished` line. If a pilot falls short,
+follow [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) section 5.
+
+To measure only the baseline, run `make baseline`.
 
 ## Step 5: Train the full study
 
 ```bash
-mkdir -p logs
-for variant in dqn_n1 ddqn_n1 ddqn_n3 ddqn_n5; do
-  for seed in 1 2 3 4 5; do
-    uv run python -m scripts.train --variant "$variant" --seed "$seed" --device cpu --wandb-mode offline 2>&1 | tee -a logs/study.log
-  done
-done
+make study
 ```
 
 **How long it takes:** each run took about 3 minutes in the pilot on an M4 MacBook Air, so all 20
@@ -173,14 +170,19 @@ should take a little over an hour. The runs execute one at a time.
 **Keep the Mac awake:** in a second terminal, run `caffeinate -i` until training finishes, then
 stop it with `Ctrl+C`. This prevents idle sleep, but closing the lid can still put the Mac to sleep.
 
-**What you'll see:** one JSON line for each diagnostic event, such as `run_started`,
-`evaluation_finished` and `run_finished`, mixed with plain text from W&B and the game emulator.
-`tee` also saves everything to `logs/study.log`.
+**What you'll see:** a heading for each run, then one JSON line for each diagnostic event, such as
+`run_started`, `evaluation_finished` and `run_finished`, mixed with plain text from W&B and the game
+emulator. Everything is also saved to `logs/study.log`.
+
+**If it stops partway:** run `make study` again. It skips runs that already finished. A run that
+stopped partway won't restart by itself, because its results are protected from being overwritten.
+`make study` carries on with the other runs, then lists the ones that didn't finish and exits with
+an error. See [Troubleshooting](#troubleshooting) for what to do with them.
 
 **Keep these rules for the study:**
 
-- Use `--device cpu` for every run. The default is `mps`, but CPU was about 4 times faster per
-  update for this small network.
+- Keep the default `DEVICE=cpu`, which was about 4 times faster per update than `mps` for this small
+  network.
 - Don't change any other settings. They're frozen now that the pilot has passed, and changing one
   means repeating the pilot.
 - Seed 0 is reserved for pilots. The study uses seeds 1 to 5.
@@ -188,32 +190,36 @@ stop it with `Ctrl+C`. This prevents idle sleep, but closing the lid can still p
 **Check that every run finished:**
 
 ```bash
-ls logs/checkpoints/*.pt | wc -l
+make status
 ```
 
-This should print 20, because a final model is saved only when a run succeeds. If a run stopped
-early, the loop carries on with the next one, so check `logs/study.log` and see
-[Troubleshooting](#troubleshooting).
+This shows each run as finished, incomplete or not started, and should end with
+`20 of 20 runs finished.`
 
 **To train a single run:**
 
 ```bash
-uv run python -m scripts.train --variant ddqn_n3 --seed 1 --device cpu --wandb-mode offline
+make train VARIANT=ddqn_n3 SEED=1
+```
+
+**To train only some runs:**
+
+```bash
+make study VARIANTS="ddqn_n3 ddqn_n5" SEEDS="1 2"
 ```
 
 **To upload offline runs to W&B afterward:**
 
 ```bash
-uv run wandb sync logs/wandb/offline-run-*
+make sync
 ```
 
 ## Step 6: Watch progress
 
-In a second terminal, start TensorBoard and open the address it prints, usually
-<http://localhost:6006>:
+In a second terminal, start TensorBoard and open <http://localhost:6006>:
 
 ```bash
-uv run tensorboard --logdir logs/tensorboard
+make tensorboard
 ```
 
 | Chart | What it shows | What to look for |
@@ -231,7 +237,7 @@ see the agents play, use the videos in step 8.
 ## Step 7: Make the figures
 
 ```bash
-uv run python -m scripts.plot_results
+make figures
 ```
 
 This reads `logs/csv/`, prints a summary table and writes two figures:
@@ -253,7 +259,7 @@ git add -f docs/figures/ablation_comparison.png docs/figures/overestimation_eval
 ## Step 8: Record the videos
 
 ```bash
-uv run python -m scripts.record_videos
+make videos
 ```
 
 This takes seed 1 of each variant and records one game per saved model, with no window and no
@@ -284,20 +290,19 @@ logs/videos/ddqn_n3_seed1/
 **Common variations:**
 
 ```bash
-uv run python -m scripts.record_videos --fps 15                       # real game speed
-uv run python -m scripts.record_videos --variants ddqn_n3 ddqn_n5     # chosen variants only
-uv run python -m scripts.record_videos --seed 0 --log-dir logs/pilot  # the pilot's final models
+make videos ARGS="--fps 15"                 # real game speed
+make videos VARIANTS="ddqn_n3 ddqn_n5"      # chosen variants only
+make videos SEED=0 LOG_DIR=logs/pilot       # the pilot's final models
 ```
 
-At `--fps 15` the 3-minute limit covers half as many game steps, so raise `--max-seconds` if a game
-gets cut off. Pilot runs have no snapshots, so that last command records only `final.mp4`, and it
-warns about variants without a pilot.
+At `--fps 15` the 3-minute limit covers half as many game steps, so raise it with
+`ARGS="--fps 15 --max-seconds 360"` if a game gets cut off. Pilot runs have no snapshots, so the last
+command records only `final.mp4`, and it warns about variants without a pilot.
 
 To capture other seeds or phases, set this **before training**. Snapshots can't be added afterward:
 
 ```bash
-uv run python -m scripts.train --variant ddqn_n3 --seed 2 --device cpu --wandb-mode offline \
-  --snapshot-seeds 1 2 --snapshot-interval 50000
+make train VARIANT=ddqn_n3 SEED=2 ARGS="--snapshot-seeds 1 2 --snapshot-interval 50000"
 ```
 
 Saving snapshots doesn't change learning. A repeat of the `ddqn_n3` seed 0 pilot with snapshots on
@@ -327,20 +332,65 @@ Each CSV row is an episode, training or evaluation row, and columns that don't a
 | Train (one per 100 updates) | `mean_q_value`, `td_loss` |
 | Evaluation (one per 25,000 steps) | `eval_predicted_q`, `eval_actual_return` |
 
-## Command options
+## Make commands
 
-Add `--help` to any script to see all its options, such as
-`uv run python -m scripts.train --help`.
+Run `make help` to see this list in your terminal.
 
-### `scripts.train`
+| Command | What it does |
+|---|---|
+| `make help`, `make usage` | List every command, with the variables and examples |
+| `make setup` | Install Python and all dependencies |
+| `make wandb-login` | Log in to W&B, needed only for `WANDB=online` |
+| `make test` | Run the tests |
+| `make lint` | Check the code with Ruff, without changing it |
+| `make format` | Fix lint problems and format the code with Ruff |
+| `make typecheck` | Check types with mypy |
+| `make check` | Run lint, type checks and tests |
+| `make trial` | Try the whole workflow on a short run in `logs/smoke` |
+| `make trial-clean` | Delete the trial run's files |
+| `make baseline` | Measure the random-policy return |
+| `make pilot` | Run the baseline and the two seed-0 pilots in `logs/pilot` |
+| `make pilot-clean` | Delete the pilot's results so it can be repeated |
+| `make train` | Train one run, chosen with `VARIANT` and `SEED` |
+| `make study` | Train all 20 runs, skipping finished ones |
+| `make status` | Show which study runs are finished, incomplete or not started |
+| `make tensorboard` | Open training charts at <http://localhost:6006> |
+| `make sync` | Upload offline runs to W&B |
+| `make figures` | Make the figures in `docs/figures` from `logs/csv` |
+| `make videos` | Record videos of each variant's saved models |
+| `make clean-run RUN=name` | Delete one run's results so it can be redone |
+
+### Variables
+
+Set these after the command, as in `make train VARIANT=ddqn_n5 SEED=2`.
+
+| Variable | Default | Used by | Meaning |
+|---|---|---|---|
+| `VARIANT` | `ddqn_n3` | `train` | `dqn_n1`, `ddqn_n1`, `ddqn_n3` or `ddqn_n5` |
+| `SEED` | `1` | `train`, `videos` | Random seed, or which seed's models to record |
+| `VARIANTS` | All four | `study`, `status`, `videos` | Variants to include, in quotes |
+| `SEEDS` | `1 2 3 4 5` | `study`, `status` | Seeds to include, in quotes |
+| `DEVICE` | `cpu` | Training commands | `cpu` or `mps`. Use `cpu` for the study |
+| `WANDB` | `offline` | `train`, `study` | `offline` or `online`. Trials and pilots are always offline |
+| `LOG_DIR` | `logs` | `train`, `study`, `status`, `tensorboard`, `sync`, `videos`, `clean-run` | Root folder for run outputs |
+| `RUN` | None | `clean-run` | The run to delete, such as `ddqn_n3_seed1` |
+| `ARGS` | None | `test`, `baseline`, `train`, `study`, `figures`, `videos` | Extra options for the underlying command |
+
+### Options you can pass with `ARGS`
+
+For the full list with descriptions, run:
+
+```bash
+make train ARGS=--help
+make videos ARGS=--help
+make figures ARGS=--help
+make baseline ARGS=--help
+```
+
+**`make train` and `make study`:**
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--variant` | `ddqn_n3` | `dqn_n1`, `ddqn_n1`, `ddqn_n3` or `ddqn_n5` |
-| `--seed` | `1` | Random seed |
-| `--device` | `mps` | `mps` or `cpu`. Use `cpu` for the study |
-| `--wandb-mode` | `online` | `online` or `offline` |
-| `--log-dir` | `logs` | Root folder for this run's outputs |
 | `--snapshot-seeds` | `1` | Seeds whose runs save snapshots |
 | `--snapshot-interval` | `100000` | Steps between snapshots |
 
@@ -359,20 +409,17 @@ These are the frozen study settings. Change them only for trial runs or a new pi
 | `--clip-rewards` | on | `--terminal-on-life-loss` | on |
 | `--auto-fire` | on | `--eval-seed-offset` | `10000` |
 
-### `scripts.record_videos`
+**`make videos`:**
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--variants` | All four | Variants to record |
-| `--seed` | `1` | Which seed's models to record |
-| `--log-dir` | `logs` | Folder holding `checkpoints/`. Videos go in `videos/` beneath it |
 | `--max-seconds` | `180` | Longest video |
 | `--fps` | `30` | Frames per second. `15` is real game speed |
 | `--epsilon` | `0.01` | Random move rate |
 | `--upscale` | `3` | Enlargement of the game picture |
 | `--game-seed-offset` | `20000` | Added to the seed for the recorded games |
 
-### `scripts.plot_results`
+**`make figures`:**
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -384,12 +431,22 @@ These are the frozen study settings. Change them only for trial runs or a new pi
 | `--grid-points` | `500` | Points per curve |
 | `--dpi` | `300` | Image resolution |
 
-### `scripts.measure_random`
+**`make baseline`:**
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--games` | `100` | Games to play |
 | `--seed` | `0` | Random seed |
+
+### Running without Make
+
+Each command wraps a script you can also run directly, always from the project root and in the form
+`uv run python -m scripts.<name>`. Running `python scripts/<name>.py` causes import errors. For
+example:
+
+```bash
+uv run python -m scripts.train --variant ddqn_n3 --seed 1 --device cpu --wandb-mode offline
+```
 
 ## Troubleshooting
 
@@ -398,20 +455,22 @@ These are the frozen study settings. Change them only for trial runs or a new pi
 Runs won't overwrite existing results. If you do want to redo a run, delete its outputs first:
 
 ```bash
-RUN=ddqn_n3_seed1
-rm -rf "logs/csv/${RUN}_metrics.csv" "logs/tensorboard/$RUN" "logs/checkpoints/$RUN.pt" "logs/checkpoints/$RUN"
+make clean-run RUN=ddqn_n3_seed1
 ```
 
 ### A run crashes or is interrupted
 
-Runs can't resume. Delete the run's outputs using the command above, then restart it from step 0.
+Runs can't resume. Delete the run's outputs with `make clean-run`, then run `make study` again. It
+restarts that run from step 0 and skips the ones that already finished.
 
 ### A run stops with `TrainingError`
 
 This means the loss or a gradient became NaN or infinite. **Don't simply rerun it**, because
 divergence may be a real result for that variant:
 
-- **If it looks like real divergence:** keep its logs and report it as a diverged run.
+- **If it looks like real divergence:** keep its logs and report it as a diverged run. `make status`
+  keeps showing it as incomplete, and `make study` keeps listing it as not finished, which is
+  expected.
 - **If it looks like a bug:** fix the bug, then rerun every run it affected.
 
 See [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) section 6. A diverged run also limits that
@@ -421,14 +480,15 @@ variant's curves to the step where it failed, which you can see in the `last ste
 
 | Problem | Cause and fix |
 |---|---|
-| `ModuleNotFoundError: No module named 'src'` | Run from the project root, as `python -m scripts.train` |
-| Training is slow | Use `--device cpu`. Also check that no game window is open |
-| `no_models_found` or `no_videos_recorded` from `record_videos` | Train first, or check `--seed` and `--log-dir`. Models must be at `{log-dir}/checkpoints/` |
-| `record_videos` makes only `final.mp4` | That run had no snapshots. Only seeds in `--snapshot-seeds` save them, and only during training |
-| `no_recognized_runs` from `plot_results` | No CSVs in `--csv-dir`. Pilot results are in `logs/pilot/csv`, not `logs/csv` |
-| `skipping_unrecognized_run` from `plot_results` | CSV names must look like `{variant}_seed{N}_metrics.csv` |
+| `No rule to make target` or `No targets specified` | Run `make` from the project root, where the Makefile is |
+| `ModuleNotFoundError: No module named 'src'` | Run from the project root, using `make` or `python -m scripts.train` |
+| Training is slow | Keep `DEVICE=cpu`, the default |
+| `no_models_found` or `no_videos_recorded` from `make videos` | Train first, or check `SEED` and `LOG_DIR`. Models must be in `{LOG_DIR}/checkpoints/` |
+| `make videos` records only `final.mp4` | That run had no snapshots. Only seeds in `--snapshot-seeds` save them, and only during training |
+| `no_recognized_runs` from `make figures` | No CSVs in `logs/csv`. Train first. Pilot results are in `logs/pilot/csv` and aren't used |
+| `skipping_unrecognized_run` from `make figures` | CSV names must look like `{variant}_seed{N}_metrics.csv` |
 | `ConfigurationError` | An option has an invalid value. The message says which one |
-| `wandb` asks you to log in | Add `--wandb-mode offline`, or run `uv run wandb login` |
+| `wandb` asks you to log in | Use the default `WANDB=offline`, or run `make wandb-login` |
 | `NameNotFound` for `ALE/Breakout-ram-v5` | Current `ale-py` removed that ID. Use `gym.make("ALE/Breakout-v5", obs_type="ram")` |
 
 ## Reporting the results
@@ -455,21 +515,14 @@ Keep these in mind too:
 
 ## Development checks
 
-Run these before committing a change:
+Run this before committing a change:
 
 ```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run --with mypy mypy --strict --ignore-missing-imports src scripts
-uv run python -m pytest
+make check
 ```
 
-To apply fixes automatically:
-
-```bash
-uv run ruff check --fix .
-uv run ruff format .
-```
+It runs `make lint`, `make typecheck` and `make test`. To fix lint and formatting problems
+automatically, run `make format`.
 
 [`AGENTS.md`](AGENTS.md) has the full coding standards and commit rules.
 
@@ -478,6 +531,7 @@ uv run ruff format .
 ```text
 ├── AGENTS.md              Instructions and conventions for AI coding agents
 ├── README.md
+├── Makefile               Commands for every task; run `make help`
 ├── pyproject.toml
 ├── docs/
 │   ├── ARCHITECTURE.md    MDP, network, target equations, n-step rules
