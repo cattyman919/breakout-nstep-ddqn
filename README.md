@@ -170,15 +170,12 @@ make study
 **How long it takes:** run one at a time, the 20 runs took 74 minutes on an M4 MacBook Air, about
 3.5 minutes each.
 
-**Training several runs at once:** set `JOBS` to train that many runs in parallel:
+**Training several runs at once:** `make study` trains 4 runs at a time by default. Set `JOBS` to
+change that, for example `make study JOBS=1` to train one at a time.
 
-```bash
-make study JOBS=4
-```
-
-Each run uses one CPU core, so `JOBS=4` matches the M4's 4 performance cores. Results are identical
-either way: each run's metrics come out byte for byte the same as when trained alone. Only the speed
-changes. See [Parallel training](#parallel-training) for how much faster it is.
+Each run uses one CPU core, so 4 matches the M4's 4 performance cores. Results are identical either
+way: each run's metrics come out byte for byte the same as when trained alone. Only the speed
+changes. See [Parallel training](#parallel-training).
 
 **Keep the Mac awake:** in a second terminal, run `caffeinate -i` until training finishes, then
 stop it with `Ctrl+C`. This prevents idle sleep, but closing the lid can still put the Mac to sleep.
@@ -371,13 +368,13 @@ setup.
 
 ## Parallel training
 
-`make study` can train several runs at the same time:
+`make study` trains several runs at the same time, 4 by default. Set `JOBS` to choose how many:
 
 ```bash
-make study JOBS=4
+make study JOBS=2
 ```
 
-Without Make, the same command is:
+Without Make, the default is one at a time, so pass `--jobs`:
 
 ```bash
 uv run python -m scripts.study --jobs 4
@@ -387,10 +384,11 @@ uv run python -m scripts.study --jobs 4
 at once, and starts the next as soon as one finishes. Each run uses one CPU core.
 
 **Results don't change:** a run's results are identical whether it trains alone or beside others.
-Training the same four runs both ways gave metrics files that were identical byte for byte. Only the time taken changes.
+Training the same four runs both ways gave metrics files that were identical byte for byte. Only
+the time taken changes.
 
-**Choosing `JOBS`:** the M4 has 4 performance cores and 6 efficiency cores, so `JOBS=4` is a good
-starting point. More jobs use the slower efficiency cores. A MacBook Air has no fan and slows down
+**Choosing `JOBS`:** the M4 has 4 performance cores and 6 efficiency cores, so the default of 4 is a
+good starting point. More jobs use the slower efficiency cores. A MacBook Air has no fan and slows down
 under long, heavy load, so the speedup is less than the number of jobs. Each run also needs a few
 hundred MB of memory.
 
@@ -448,13 +446,14 @@ Run `make help` to see this list in your terminal.
 | `make pilot` | Run the baseline and the two seed-0 pilots in `logs/pilot` |
 | `make pilot-clean` | Delete the pilot's results so it can be repeated |
 | `make train` | Train one run, chosen with `VARIANT` and `SEED` |
-| `make study` | Train all 20 runs, skipping finished ones; `JOBS=4` trains 4 at a time |
+| `make study` | Train all 20 runs, 4 at a time, skipping finished ones |
 | `make status` | Show which study runs are finished, incomplete or not started |
 | `make tensorboard` | Open training charts at <http://localhost:6006> |
 | `make sync` | Upload offline runs to W&B |
 | `make figures` | Make the figures from `LOG_DIR`'s runs; `docs/figures` for the study |
 | `make videos` | Record videos of each variant's saved models |
 | `make clean-run RUN=name` | Delete one run's results so it can be redone |
+| `make clean-results` | Delete every result in `LOG_DIR` so training can start over, after asking |
 
 ### Variables
 
@@ -470,9 +469,10 @@ Set these after the command, as in `make train VARIANT=ddqn_n5 SEED=2`.
 | `WANDB` | `offline` | `train`, `study` | `offline` or `online`. Trials and pilots are always offline |
 | `STEPS` | `500000` | `train`, `study` | Training steps per run. See [Training for longer](#training-for-longer) |
 | `SNAPSHOT_INTERVAL` | `100000` | `train`, `study` | Steps between model snapshots |
-| `JOBS` | `1` | `study` | Runs to train at the same time. See [Parallel training](#parallel-training) |
+| `JOBS` | `4` | `study` | Runs to train at the same time. See [Parallel training](#parallel-training) |
 | `LOG_DIR` | `logs`, or `logs/steps_<STEPS>` if `STEPS` changes | `train`, `study`, `status`, `tensorboard`, `sync`, `figures`, `videos`, `clean-run` | Root folder for run outputs |
 | `RUN` | None | `clean-run` | The run to delete, such as `ddqn_n3_seed1` |
+| `CONFIRM` | None | `clean-results` | Set to `yes` to delete without being asked |
 | `ARGS` | None | `test`, `baseline`, `train`, `study`, `figures`, `videos` | Extra options for the underlying command |
 
 ### Options you can pass with `ARGS`
@@ -559,6 +559,27 @@ Runs won't overwrite existing results. If you do want to redo a run, delete its 
 ```bash
 make clean-run RUN=ddqn_n3_seed1
 ```
+
+### Starting the study over
+
+To delete every study result and train again from the beginning:
+
+```bash
+make clean-results
+make study
+```
+
+`make clean-results` lists what it will delete, with sizes, and deletes nothing unless you type
+`yes`. It removes the metrics, TensorBoard logs, models, snapshots, W&B files, videos and run logs
+in `logs/`. It keeps:
+
+- `logs/pilot`, the recorded pilot
+- longer runs in `logs/steps_<STEPS>`. Clean one with `make clean-results STEPS=<STEPS>`
+- `docs/figures`, which you may have committed. Run `make figures` after retraining to replace them
+
+It refuses to run while training is still writing to that folder. In a script, where it can't ask,
+use `make clean-results CONFIRM=yes`. Online runs already uploaded to W&B stay there; delete those on
+the W&B website.
 
 ### A run crashes or is interrupted
 

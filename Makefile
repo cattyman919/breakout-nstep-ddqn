@@ -16,6 +16,7 @@ STEPS ?= 500000
 SNAPSHOT_INTERVAL ?= 100000
 JOBS ?= 4
 ARGS ?=
+CONFIRM ?=
 
 # Runs of a different length get their own folder, so they never mix with the 500,000-step study.
 ifeq ($(STEPS),500000)
@@ -26,8 +27,12 @@ endif
 
 ifeq ($(LOG_DIR),logs)
 FIGURES_DIR := docs/figures
+CLEAN_PATHS := $(addprefix $(LOG_DIR)/,csv tensorboard checkpoints wandb videos run_logs study.log)
+KEPT_MESSAGE := Kept: logs/pilot, longer runs in logs/steps_*, and docs/figures.
 else
 FIGURES_DIR := $(LOG_DIR)/figures
+CLEAN_PATHS := $(addprefix $(LOG_DIR)/,csv tensorboard checkpoints wandb videos run_logs study.log figures)
+KEPT_MESSAGE := Kept: everything outside $(LOG_DIR).
 endif
 
 PY := uv run python -m
@@ -35,7 +40,7 @@ PILOT_DIR := logs/pilot
 TRIAL_DIR := logs/smoke
 
 .PHONY: help usage setup wandb-login test lint format typecheck check trial trial-clean baseline \
-	pilot pilot-clean train study status tensorboard sync figures videos clean-run
+	pilot pilot-clean train study status tensorboard sync figures videos clean-run clean-results
 
 ##@ Help
 
@@ -66,6 +71,7 @@ help: ## Show this list of commands
 	var LOG_DIR "Run outputs; logs/steps_<STEPS> if STEPS changes" '$(LOG_DIR)'; \
 	var ARGS "Extra options passed to the underlying command" '$(ARGS)'; \
 	printf "  %s%-18s%s %s\n" "$$yellow" RUN "$$reset" "Run to delete with clean-run, such as ddqn_n3_seed1"; \
+	printf "  %s%-18s%s %s\n" "$$yellow" CONFIRM "$$reset" "Set to yes to skip the clean-results question"; \
 	printf "\n%sExamples:%s\n" "$$bold" "$$reset"; \
 	example 'make study' "Train all 20 runs"; \
 	example 'make train VARIANT=ddqn_n5 SEED=2' "Train one run"; \
@@ -73,6 +79,7 @@ help: ## Show this list of commands
 	example 'make study STEPS=2000000' "Train all 20 runs for 2 million steps"; \
 	example 'make videos ARGS="--fps 15"' "Record videos at real game speed"; \
 	example 'make test ARGS="-k polyak"' "Run tests matching a word"; \
+	example 'make clean-results' "Delete all study results, after asking"; \
 	example 'make train ARGS=--help' "List every training option"
 
 usage: help ## Same as help
@@ -187,3 +194,31 @@ clean-run: ## Delete one run's results so it can be redone; needs RUN=name
 	esac
 	rm -rf "$(LOG_DIR)/csv/$(RUN)_metrics.csv" "$(LOG_DIR)/tensorboard/$(RUN)" \
 		"$(LOG_DIR)/checkpoints/$(RUN).pt" "$(LOG_DIR)/checkpoints/$(RUN)"
+
+clean-results: ## Delete every result in LOG_DIR to restart training, after asking first
+	@case "$(LOG_DIR)" in \
+		"" | . | /* | *..*) echo "Refusing to clean LOG_DIR=$(LOG_DIR): use a folder inside the project."; exit 2 ;; \
+	esac; \
+	if pgrep -f -- "--log-dir $(LOG_DIR)( |$$)" > /dev/null; then \
+		echo "Training is still writing to $(LOG_DIR). Stop it before deleting its results."; \
+		exit 1; \
+	fi; \
+	targets=""; \
+	for path in $(CLEAN_PATHS); do \
+		if [ -e "$$path" ]; then targets="$$targets $$path"; fi; \
+	done; \
+	if [ -z "$$targets" ]; then echo "No results to delete in $(LOG_DIR)."; exit 0; fi; \
+	echo "This permanently deletes:"; \
+	du -sh $$targets | sed 's/^/  /'; \
+	echo "$(KEPT_MESSAGE)"; \
+	if [ "$(CONFIRM)" != "yes" ]; then \
+		if [ ! -t 0 ]; then \
+			echo "Can't ask for confirmation here. Run with CONFIRM=yes to delete without asking."; \
+			exit 1; \
+		fi; \
+		printf "Type yes to delete them: "; \
+		read -r answer; \
+		if [ "$$answer" != "yes" ]; then echo "Nothing was deleted."; exit 0; fi; \
+	fi; \
+	rm -rf $$targets; \
+	echo "Deleted. Run make study to train again."
