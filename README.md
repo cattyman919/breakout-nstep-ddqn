@@ -17,6 +17,7 @@ Breakout, using the game's 128 bytes of RAM as the observation instead of pixels
 - [Step 6: Watch progress](#step-6-watch-progress)
 - [Step 7: Make the figures](#step-7-make-the-figures)
 - [Step 8: Record the videos](#step-8-record-the-videos)
+- [Training for longer](#training-for-longer)
 - [Output files](#output-files)
 - [Make commands](#make-commands)
 - [Troubleshooting](#troubleshooting)
@@ -303,11 +304,59 @@ command records only `final.mp4`, and it warns about variants without a pilot.
 To capture other seeds or phases, set this **before training**. Snapshots can't be added afterward:
 
 ```bash
-make train VARIANT=ddqn_n3 SEED=2 ARGS="--snapshot-seeds 1 2 --snapshot-interval 50000"
+make train VARIANT=ddqn_n3 SEED=2 SNAPSHOT_INTERVAL=50000 ARGS="--snapshot-seeds 1 2"
 ```
 
 Saving snapshots doesn't change learning. A repeat of the `ddqn_n3` seed 0 pilot with snapshots on
 gave a byte-identical metrics CSV.
+
+## Training for longer
+
+The study's 500,000-step runs are complete and frozen. To see how far the agents get with more
+training, set `STEPS`, and optionally `SNAPSHOT_INTERVAL`:
+
+```bash
+make train VARIANT=ddqn_n5 SEED=1 STEPS=5000000 SNAPSHOT_INTERVAL=500000
+```
+
+**Where the results go:** any `STEPS` other than 500,000 automatically uses its own folder,
+`logs/steps_<STEPS>`, such as `logs/steps_5000000`. This keeps longer runs from mixing with the
+study, and stops `make study` from skipping them as already finished. Pass the same `STEPS` to the
+other commands so they read that folder:
+
+```bash
+make status STEPS=5000000
+make videos STEPS=5000000 VARIANTS=ddqn_n5
+make figures STEPS=5000000   # writes to logs/steps_5000000/figures, not docs/figures
+make tensorboard STEPS=5000000
+```
+
+**How long it takes:** the study's runs took 3.2 to 4.8 minutes each, 74 minutes for all 20. Time
+grows roughly in line with `STEPS`, so expect:
+
+| `STEPS` | One run | All 20 runs |
+|---|---|---|
+| 500,000 | About 3.5 minutes | About 75 minutes |
+| 2,000,000 | About 15 minutes | About 5 hours |
+| 5,000,000 | About 35–45 minutes | About 12–15 hours |
+
+**What changes with `STEPS`:**
+
+- **Exploration:** the random-move rate still decays over the first 10% of training, so at 5 million
+  steps it reaches 0.05 at step 500,000 instead of 50,000.
+- **Logging:** evaluation still runs every 25,000 steps, so 5 million steps gives 200 evaluation
+  points.
+- **Snapshots:** one at the start plus one every `SNAPSHOT_INTERVAL` steps. The default of 100,000
+  would give 51 snapshots, and 51 videos, for a 5-million-step run, so raise it for long runs.
+  `SNAPSHOT_INTERVAL=500000` gives 11.
+
+**Comparing results:** runs of different lengths can't be compared directly. To compare all four
+variants at a new length, run the full study at that length with `make study STEPS=<N>`, and
+report it separately from the 500,000-step study.
+
+**Winning the game:** clearing both walls is worth 864 points. The study's best variant averages
+about 22 points per game, and more training is unlikely to get close to clearing the wall with this
+setup.
 
 ## Output files
 
@@ -357,7 +406,7 @@ Run `make help` to see this list in your terminal.
 | `make status` | Show which study runs are finished, incomplete or not started |
 | `make tensorboard` | Open training charts at <http://localhost:6006> |
 | `make sync` | Upload offline runs to W&B |
-| `make figures` | Make the figures in `docs/figures` from `logs/csv` |
+| `make figures` | Make the figures from `LOG_DIR`'s runs; `docs/figures` for the study |
 | `make videos` | Record videos of each variant's saved models |
 | `make clean-run RUN=name` | Delete one run's results so it can be redone |
 
@@ -373,7 +422,9 @@ Set these after the command, as in `make train VARIANT=ddqn_n5 SEED=2`.
 | `SEEDS` | `1 2 3 4 5` | `study`, `status` | Seeds to include, in quotes |
 | `DEVICE` | `cpu` | Training commands | `cpu` or `mps`. Use `cpu` for the study |
 | `WANDB` | `offline` | `train`, `study` | `offline` or `online`. Trials and pilots are always offline |
-| `LOG_DIR` | `logs` | `train`, `study`, `status`, `tensorboard`, `sync`, `videos`, `clean-run` | Root folder for run outputs |
+| `STEPS` | `500000` | `train`, `study` | Training steps per run. See [Training for longer](#training-for-longer) |
+| `SNAPSHOT_INTERVAL` | `100000` | `train`, `study` | Steps between model snapshots |
+| `LOG_DIR` | `logs`, or `logs/steps_<STEPS>` if `STEPS` changes | `train`, `study`, `status`, `tensorboard`, `sync`, `figures`, `videos`, `clean-run` | Root folder for run outputs |
 | `RUN` | None | `clean-run` | The run to delete, such as `ddqn_n3_seed1` |
 | `ARGS` | None | `test`, `baseline`, `train`, `study`, `figures`, `videos` | Extra options for the underlying command |
 
@@ -393,13 +444,15 @@ make baseline ARGS=--help
 | Option | Default | Meaning |
 |---|---|---|
 | `--snapshot-seeds` | `1` | Seeds whose runs save snapshots |
-| `--snapshot-interval` | `100000` | Steps between snapshots |
+
+`STEPS` and `SNAPSHOT_INTERVAL` set `--total-timesteps` and `--snapshot-interval`. A value in `ARGS`
+takes priority over them.
 
 These are the frozen study settings. Change them only for trial runs or a new pilot round:
 
 | Option | Default | Option | Default |
 |---|---|---|---|
-| `--total-timesteps` | `500000` | `--epsilon-start` | `1.0` |
+| `--total-timesteps` (`STEPS`) | `500000` | `--epsilon-start` | `1.0` |
 | `--learning-rate` | `0.0001` | `--epsilon-end` | `0.05` |
 | `--batch-size` | `64` | `--epsilon-decay-fraction` | `0.1` |
 | `--buffer-capacity` | `100000` | `--learning-starts` | `10000` |

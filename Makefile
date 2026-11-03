@@ -12,8 +12,22 @@ VARIANTS ?= dqn_n1 ddqn_n1 ddqn_n3 ddqn_n5
 SEEDS ?= 1 2 3 4 5
 DEVICE ?= cpu
 WANDB ?= offline
-LOG_DIR ?= logs
+STEPS ?= 500000
+SNAPSHOT_INTERVAL ?= 100000
 ARGS ?=
+
+# Runs of a different length get their own folder, so they never mix with the 500,000-step study.
+ifeq ($(STEPS),500000)
+LOG_DIR ?= logs
+else
+LOG_DIR ?= logs/steps_$(STEPS)
+endif
+
+ifeq ($(LOG_DIR),logs)
+FIGURES_DIR := docs/figures
+else
+FIGURES_DIR := $(LOG_DIR)/figures
+endif
 
 PY := uv run python -m
 PILOT_DIR := logs/pilot
@@ -31,7 +45,7 @@ help: ## Show this list of commands
 	else \
 		bold=""; dim=""; cyan=""; yellow=""; green=""; reset=""; \
 	fi; \
-	var() { printf "  %s%-14s%s %s %s[%s]%s\n" "$$yellow" "$$1" "$$reset" "$$2" "$$dim" "$$3" "$$reset"; }; \
+	var() { printf "  %s%-18s%s %s %s[%s]%s\n" "$$yellow" "$$1" "$$reset" "$$2" "$$dim" "$$3" "$$reset"; }; \
 	example() { printf "  %s%-41s%s %s\n" "$$green" "$$1" "$$reset" "$$2"; }; \
 	printf "%sUsage:%s make %s<command>%s %s[VARIABLE=value ...]%s\n" \
 		"$$bold" "$$reset" "$$cyan" "$$reset" "$$yellow" "$$reset"; \
@@ -45,12 +59,15 @@ help: ## Show this list of commands
 	var SEEDS "Seeds for study and status" '$(SEEDS)'; \
 	var DEVICE "cpu or mps; use cpu for the study" '$(DEVICE)'; \
 	var WANDB "W&B mode, offline or online" '$(WANDB)'; \
-	var LOG_DIR "Root folder for run outputs" '$(LOG_DIR)'; \
+	var STEPS "Training steps per run for train and study" '$(STEPS)'; \
+	var SNAPSHOT_INTERVAL "Steps between model snapshots" '$(SNAPSHOT_INTERVAL)'; \
+	var LOG_DIR "Run outputs; logs/steps_<STEPS> if STEPS changes" '$(LOG_DIR)'; \
 	var ARGS "Extra options passed to the underlying command" '$(ARGS)'; \
-	printf "  %s%-14s%s %s\n" "$$yellow" RUN "$$reset" "Run to delete with clean-run, such as ddqn_n3_seed1"; \
+	printf "  %s%-18s%s %s\n" "$$yellow" RUN "$$reset" "Run to delete with clean-run, such as ddqn_n3_seed1"; \
 	printf "\n%sExamples:%s\n" "$$bold" "$$reset"; \
 	example 'make study' "Train all 20 runs"; \
 	example 'make train VARIANT=ddqn_n5 SEED=2' "Train one run"; \
+	example 'make study STEPS=2000000' "Train all 20 runs for 2 million steps"; \
 	example 'make videos ARGS="--fps 15"' "Record videos at real game speed"; \
 	example 'make test ARGS="-k polyak"' "Run tests matching a word"; \
 	example 'make train ARGS=--help' "List every training option"
@@ -113,7 +130,8 @@ pilot-clean: ## Delete the pilot's results so it can be repeated
 
 train: ## Train one run, chosen with VARIANT and SEED
 	$(PY) scripts.train --variant $(VARIANT) --seed $(SEED) --device $(DEVICE) \
-		--wandb-mode $(WANDB) --log-dir $(LOG_DIR) $(ARGS)
+		--wandb-mode $(WANDB) --log-dir "$(LOG_DIR)" --total-timesteps $(STEPS) \
+		--snapshot-interval $(SNAPSHOT_INTERVAL) $(ARGS)
 
 study: ## Train all 20 runs, skipping finished ones (a little over an hour)
 	@mkdir -p "$(LOG_DIR)"; \
@@ -127,7 +145,8 @@ study: ## Train all 20 runs, skipping finished ones (a little over an hour)
 			fi; \
 			echo "=== Training $$run"; \
 			$(PY) scripts.train --variant "$$variant" --seed "$$seed" --device $(DEVICE) \
-				--wandb-mode $(WANDB) --log-dir "$(LOG_DIR)" $(ARGS) 2>&1 \
+				--wandb-mode $(WANDB) --log-dir "$(LOG_DIR)" --total-timesteps $(STEPS) \
+				--snapshot-interval $(SNAPSHOT_INTERVAL) $(ARGS) 2>&1 \
 				| tee -a "$(LOG_DIR)/study.log"; \
 			if [ "$${PIPESTATUS[0]}" -ne 0 ]; then failed="$$failed $$run"; fi; \
 		done; \
@@ -165,8 +184,10 @@ sync: ## Upload offline runs to Weights & Biases
 
 ##@ Results
 
-figures: ## Make the figures in docs/figures from logs/csv
-	$(PY) scripts.plot_results $(ARGS)
+figures: ## Make the figures from LOG_DIR's runs (docs/figures for the study)
+	$(PY) scripts.plot_results --csv-dir "$(LOG_DIR)/csv" \
+		--output "$(FIGURES_DIR)/ablation_comparison.png" \
+		--overestimation-output "$(FIGURES_DIR)/overestimation_evaluation.png" $(ARGS)
 
 videos: ## Record videos of each variant's saved models, for SEED
 	$(PY) scripts.record_videos --variants $(VARIANTS) --seed $(SEED) --log-dir "$(LOG_DIR)" $(ARGS)
