@@ -4,7 +4,8 @@ Run from the project root, after training::
 
     uv run python -m scripts.record_videos
 
-For each variant this reads the snapshots and final model of one seed, and writes
+For each variant this reads the snapshots and final model of one seed from
+``logs/steps_<steps>``, or ``--log-dir``, and writes
 ``{log_dir}/videos/{run_name}/step_{step}.mp4`` and ``final.mp4``. Each video is one game, which
 stops at game over or at the length limit. No window opens, so this runs much faster than the
 game plays. Recording reads saved models only, so it cannot affect training.
@@ -22,6 +23,7 @@ import numpy as np
 import torch
 import tyro
 
+from scripts.train import TrainConfig, steps_log_dir
 from src.agents import AgentConfig, DQNAgent
 from src.environment import BreakoutGame, make_breakout_env
 from src.exceptions import BaseProjectError, ConfigurationError, GameEnvironmentError
@@ -41,8 +43,10 @@ class VideoConfig:
     """Variants to record."""
     seed: int = 1
     """Which seed's models to record."""
-    log_dir: Path = Path("logs")
-    """Root directory holding checkpoints/. Videos go in videos/ beneath it."""
+    steps: int = TrainConfig.total_timesteps
+    """Run length to record. Sets the default folder, logs/steps_<steps>."""
+    log_dir: Path | None = None
+    """Folder holding checkpoints/; videos go in videos/ beneath it. Defaults to logs/steps_<steps>."""
     max_seconds: int = 180
     """Longest video. A game still running at this point is cut off."""
     fps: int = 30
@@ -66,6 +70,11 @@ class VideoConfig:
             raise ConfigurationError(f"seed must not be negative, got {self.seed}")
         if not 0.0 <= self.epsilon <= 1.0:
             raise ConfigurationError(f"epsilon must be in [0, 1], got {self.epsilon}")
+
+    @property
+    def run_dir(self) -> Path:
+        """The folder holding this length's checkpoints and videos."""
+        return self.log_dir if self.log_dir is not None else steps_log_dir(self.steps)
 
     @property
     def max_frames(self) -> int:
@@ -95,8 +104,8 @@ class ClipResult:
 def find_clips(config: VideoConfig, variant: str) -> list[Clip]:
     """List the videos to make for one variant: snapshots by step, then the final model."""
     run_name = f"{variant}_seed{config.seed}"
-    checkpoints = config.log_dir / "checkpoints"
-    videos = config.log_dir / "videos" / run_name
+    checkpoints = config.run_dir / "checkpoints"
+    videos = config.run_dir / "videos" / run_name
 
     pattern = re.compile(r"^step_(\d+)\.pt$")
     snapshots = [
@@ -184,7 +193,7 @@ def record_all(
     for variant in config.variants:
         clips = find_clips(config, variant)
         if not clips:
-            log.warning("no_models_found", variant=variant, log_dir=str(config.log_dir))
+            log.warning("no_models_found", variant=variant, log_dir=str(config.run_dir))
             continue
         for index, clip in enumerate(clips):
             # Each clip gets its own game, so the last snapshot and the final model, which hold
@@ -220,7 +229,7 @@ def main() -> int:
         log.exception("recording_failed")
         return 1
     if not results:
-        log.error("no_videos_recorded", log_dir=str(config.log_dir), seed=config.seed)
+        log.error("no_videos_recorded", log_dir=str(config.run_dir), seed=config.seed)
         return 1
     print_summary(results, config.fps)
     return 0

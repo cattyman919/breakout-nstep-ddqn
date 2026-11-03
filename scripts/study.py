@@ -7,7 +7,8 @@ Run from the project root::
 Each run is a separate ``scripts.train`` process using one CPU core, so a run's results are the
 same whether it trains alone or beside others; only the wall-clock time changes. Runs whose final
 model already exists are skipped, so the command can be rerun after an interruption. Each run's
-output goes to ``{log_dir}/run_logs/{run_name}.log``.
+output goes to ``{log_dir}/run_logs/{run_name}.log``, where ``log_dir`` defaults to
+``logs/steps_<total_timesteps>``.
 
 Each finished line shows how long the run took. At the end, a table gives the training time per
 variant and in total, and each run's time is appended to ``{log_dir}/run_logs/timings.csv`` as soon
@@ -171,6 +172,8 @@ def to_cli_args(config: TrainConfig) -> list[str]:
     for field in dataclasses.fields(config):
         value = getattr(config, field.name)
         flag = "--" + field.name.replace("_", "-")
+        if value is None:
+            continue
         if isinstance(value, bool):
             args.append(flag if value else "--no-" + field.name.replace("_", "-"))
         elif isinstance(value, tuple):
@@ -196,17 +199,17 @@ def plan_runs(study: StudyConfig, template: TrainConfig) -> tuple[list[str], lis
 
 def final_model_path(config: TrainConfig) -> Path:
     """Where a run's final model is saved; it exists only if the run finished."""
-    return config.log_dir / "checkpoints" / f"{config.run_name}.pt"
+    return config.output_dir / "checkpoints" / f"{config.run_name}.pt"
 
 
 def run_log_path(config: TrainConfig) -> Path:
     """Where a run's console output is written."""
-    return config.log_dir / "run_logs" / f"{config.run_name}.log"
+    return config.output_dir / "run_logs" / f"{config.run_name}.log"
 
 
 def timings_path(config: TrainConfig) -> Path:
     """Where each run's training time is recorded."""
-    return config.log_dir / "run_logs" / "timings.csv"
+    return config.output_dir / "run_logs" / "timings.csv"
 
 
 def train_in_subprocess(config: TrainConfig) -> int:
@@ -317,7 +320,7 @@ def main() -> int:
     if result.failed:
         log.error("runs_failed", runs=result.failed)
         print("These runs did not finish: " + ", ".join(result.failed))
-        print("Check their logs in " + str(template.log_dir / "run_logs") + "/.")
+        print("Check their logs in " + str(template.output_dir / "run_logs") + "/.")
         return 1
     return 0
 

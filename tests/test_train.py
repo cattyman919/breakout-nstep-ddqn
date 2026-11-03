@@ -428,3 +428,18 @@ def test_resolve_device_falls_back_with_a_structured_warning(
     monkeypatch.setattr(torch.backends.mps, "is_available", lambda: False)
     assert resolve_device("mps", make_structured_logger("run", 0)) == torch.device("cpu")
     assert "mps_unavailable" in capsys.readouterr().err
+
+
+def test_each_run_length_defaults_to_its_own_folder(tmp_path: Path) -> None:
+    assert TrainConfig().output_dir == Path("logs/steps_500000")
+    assert TrainConfig(total_timesteps=12_000_000).output_dir == Path("logs/steps_12000000")
+    assert TrainConfig(log_dir=tmp_path).output_dir == tmp_path
+
+
+def test_checkpoints_and_hyperparams_use_the_resolved_folder(tmp_path: Path) -> None:
+    config = short_config(tmp_path)
+    log = make_structured_logger(config.run_name, config.seed)
+    with DualLogger(config.run_name, {}, wandb_mode="offline", log_dir=tmp_path) as metrics:
+        agent = train(config, torch.device("cpu"), metrics, log, env_factory=factory([]))
+    path = save_checkpoint(agent, config)
+    assert torch.load(path)["config"]["log_dir"] == str(tmp_path)

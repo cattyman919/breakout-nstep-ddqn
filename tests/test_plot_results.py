@@ -104,3 +104,17 @@ def test_build_figures_reports_when_there_are_no_runs(
 def test_invalid_config_raises(overrides: dict[str, int]) -> None:
     with pytest.raises(ConfigurationError):
         PlotConfig(**overrides)
+
+
+def test_default_paths_follow_the_run_length() -> None:
+    config = PlotConfig(steps=12_000_000)
+    assert config.csv_directory == Path("logs/steps_12000000/csv")
+    assert config.comparison_path == Path("logs/steps_12000000/figures/ablation_comparison.png")
+    assert config.overestimation_path.parent == Path("logs/steps_12000000/figures")
+    assert PlotConfig().csv_directory == Path("logs/steps_500000/csv")
+
+
+def test_explicit_paths_take_priority(tmp_path: Path) -> None:
+    config = plot_config(tmp_path)
+    assert config.csv_directory == tmp_path
+    assert config.comparison_path == tmp_path / "out" / "a.png"

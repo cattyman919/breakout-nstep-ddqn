@@ -39,6 +39,7 @@ from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 from numpy.typing import NDArray
 
+from scripts.train import TrainConfig, steps_log_dir
 from src.exceptions import ConfigurationError
 from src.utils.logger import make_structured_logger
 
@@ -47,12 +48,14 @@ from src.utils.logger import make_structured_logger
 class PlotConfig:
     """Command-line options for the figure."""
 
-    csv_dir: Path = Path("logs/csv")
-    """Directory holding ``*_metrics.csv`` files."""
-    output: Path = Path("docs/figures/ablation_comparison.png")
-    """Output image path for the ablation figure."""
-    overestimation_output: Path = Path("docs/figures/overestimation_evaluation.png")
-    """Output image path for the overestimation figure."""
+    steps: int = TrainConfig.total_timesteps
+    """Run length to plot. Sets the default folders, logs/steps_<steps>/csv and figures/."""
+    csv_dir: Path | None = None
+    """Directory holding ``*_metrics.csv`` files. Defaults to logs/steps_<steps>/csv."""
+    output: Path | None = None
+    """Ablation figure path. Defaults to logs/steps_<steps>/figures/ablation_comparison.png."""
+    overestimation_output: Path | None = None
+    """Overestimation figure path. Defaults to the same folder as the ablation figure."""
     window: int = 100
     """Rolling window, in episodes, for Panel A."""
     min_periods: int = 10
@@ -71,6 +74,25 @@ class PlotConfig:
             raise ConfigurationError(f"grid_points must be at least 2, got {self.grid_points}")
         if self.dpi <= 0:
             raise ConfigurationError(f"dpi must be positive, got {self.dpi}")
+
+    @property
+    def csv_directory(self) -> Path:
+        """The folder of run CSVs to read."""
+        return self.csv_dir if self.csv_dir is not None else steps_log_dir(self.steps) / "csv"
+
+    @property
+    def comparison_path(self) -> Path:
+        """Where the ablation figure is written."""
+        if self.output is not None:
+            return self.output
+        return steps_log_dir(self.steps) / "figures" / "ablation_comparison.png"
+
+    @property
+    def overestimation_path(self) -> Path:
+        """Where the overestimation figure is written."""
+        if self.overestimation_output is not None:
+            return self.overestimation_output
+        return steps_log_dir(self.steps) / "figures" / "overestimation_evaluation.png"
 
 
 @dataclass(frozen=True)
@@ -390,8 +412,10 @@ def render_figure(
             handlelength=3,
         )
         figure.tight_layout(rect=(0, 0, 1, 0.93), w_pad=5)
-        config.output.parent.mkdir(parents=True, exist_ok=True)
-        figure.savefig(config.output, dpi=config.dpi, facecolor=chrome.surface, bbox_inches="tight")
+        config.comparison_path.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(
+            config.comparison_path, dpi=config.dpi, facecolor=chrome.surface, bbox_inches="tight"
+        )
         plt.close(figure)
 
 
@@ -457,9 +481,9 @@ def render_overestimation_figure(
             handlelength=3,
         )
         figure.tight_layout(rect=(0, 0, 1, 0.91), w_pad=4.5)
-        config.overestimation_output.parent.mkdir(parents=True, exist_ok=True)
+        config.overestimation_path.parent.mkdir(parents=True, exist_ok=True)
         figure.savefig(
-            config.overestimation_output,
+            config.overestimation_path,
             dpi=config.dpi,
             facecolor=chrome.surface,
             bbox_inches="tight",
@@ -491,9 +515,9 @@ def build_figures(config: PlotConfig, log: Any) -> int:
     """Build both figures and return a process exit code."""
     matplotlib.use("Agg")
     styles = variant_styles()
-    runs = discover_runs(config.csv_dir, list(styles), log)
+    runs = discover_runs(config.csv_directory, list(styles), log)
     if not runs:
-        log.error("no_recognized_runs", csv_dir=str(config.csv_dir))
+        log.error("no_recognized_runs", csv_dir=str(config.csv_directory))
         return 1
 
     returns: dict[str, Curve] = {}
@@ -520,8 +544,8 @@ def build_figures(config: PlotConfig, log: Any) -> int:
     render_figure(returns, q_values, styles, config)
     render_overestimation_figure(evaluations, styles, config)
     print_summary(returns, q_values, list(styles))
-    print(f"Saved {config.output}")
-    print(f"Saved {config.overestimation_output}")
+    print(f"Saved {config.comparison_path}")
+    print(f"Saved {config.overestimation_path}")
     return 0
 
 

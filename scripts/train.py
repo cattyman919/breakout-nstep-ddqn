@@ -36,8 +36,8 @@ class TrainConfig:
     """Compute device. A request for mps falls back to cpu if it is unavailable."""
     wandb_mode: Literal["online", "offline"] = "online"
     """Weights & Biases sync mode."""
-    log_dir: Path = Path("logs")
-    """Root directory for all run outputs. Pilots use logs/pilot."""
+    log_dir: Path | None = None
+    """Root directory for all run outputs. Defaults to logs/steps_<total_timesteps>."""
 
     total_timesteps: int = 500_000
     learning_rate: float = 1e-4
@@ -120,6 +120,11 @@ class TrainConfig:
             )
 
     @property
+    def output_dir(self) -> Path:
+        """Where this run's outputs go: log_dir if set, else one folder per run length."""
+        return self.log_dir if self.log_dir is not None else steps_log_dir(self.total_timesteps)
+
+    @property
     def run_name(self) -> str:
         """Run identifier; scripts/plot_results.py parses this format."""
         return f"{self.variant}_seed{self.seed}"
@@ -155,6 +160,14 @@ class TrainConfig:
         decay_steps = self.epsilon_decay_fraction * self.total_timesteps
         progress = min(step / decay_steps, 1.0)
         return self.epsilon_start + progress * (self.epsilon_end - self.epsilon_start)
+
+
+def steps_log_dir(total_timesteps: int) -> Path:
+    """Return the default output folder for runs of a given length, such as logs/steps_500000.
+
+    Runs of different lengths can't be compared, so each length gets its own folder.
+    """
+    return Path("logs") / f"steps_{total_timesteps}"
 
 
 def resolve_device(requested: Literal["mps", "cpu"], log: Any) -> torch.device:
@@ -287,14 +300,14 @@ def train(
 
 def save_checkpoint(agent: DQNAgent, config: TrainConfig) -> Path:
     """Write the final model and return its path."""
-    path = config.log_dir / "checkpoints" / f"{config.run_name}.pt"
+    path = config.output_dir / "checkpoints" / f"{config.run_name}.pt"
     _save_model(agent, config, path, config.total_timesteps)
     return path
 
 
 def save_snapshot(agent: DQNAgent, config: TrainConfig, step: int) -> Path:
     """Write the model as it is at ``step`` and return its path. Training is not affected."""
-    path = config.log_dir / "checkpoints" / config.run_name / f"step_{step:06d}.pt"
+    path = config.output_dir / "checkpoints" / config.run_name / f"step_{step:06d}.pt"
     _save_model(agent, config, path, step)
     return path
 
@@ -307,10 +320,8 @@ def _save_model(agent: DQNAgent, config: TrainConfig, path: Path, step: int) -> 
 
 def _hyperparams(config: TrainConfig) -> dict[str, Any]:
     """Return the config as plain values that W&B and checkpoints can store."""
-    return {
-        key: str(value) if isinstance(value, Path) else value
-        for key, value in asdict(config).items()
-    }
+    values = {**asdict(config), "log_dir": config.output_dir}
+    return {key: str(value) if isinstance(value, Path) else value for key, value in values.items()}
 
 
 def run(
@@ -324,7 +335,7 @@ def run(
     log.info("run_started", device=str(device), variant=config.variant)
     try:
         metrics = DualLogger(
-            config.run_name, hyperparams, wandb_mode=config.wandb_mode, log_dir=config.log_dir
+            config.run_name, hyperparams, wandb_mode=config.wandb_mode, log_dir=config.output_dir
         )
     except (BaseProjectError, OSError, wandb.Error):
         log.exception("run_setup_failed")

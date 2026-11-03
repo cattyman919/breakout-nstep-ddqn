@@ -18,23 +18,12 @@ JOBS ?= 4
 ARGS ?=
 CONFIRM ?=
 
-# The finished 500,000-step study lives in logs/; use STEPS=500000 SNAPSHOT_INTERVAL=100000 for it.
-# Runs of any other length get their own folder, so they never mix with it.
-ifeq ($(STEPS),500000)
-LOG_DIR ?= logs
-else
+# Each run length gets its own folder, such as logs/steps_12000000, because runs of different
+# lengths can't be compared. This matches the scripts' own default.
 LOG_DIR ?= logs/steps_$(STEPS)
-endif
-
-ifeq ($(LOG_DIR),logs)
-FIGURES_DIR := docs/figures
-CLEAN_PATHS := $(addprefix $(LOG_DIR)/,csv tensorboard checkpoints wandb videos run_logs study.log)
-KEPT_MESSAGE := Kept: logs/pilot, longer runs in logs/steps_*, and docs/figures.
-else
 FIGURES_DIR := $(LOG_DIR)/figures
-CLEAN_PATHS := $(addprefix $(LOG_DIR)/,csv tensorboard checkpoints wandb videos run_logs study.log figures)
-KEPT_MESSAGE := Kept: everything outside $(LOG_DIR).
-endif
+CLEAN_PATHS := $(addprefix $(LOG_DIR)/,csv tensorboard checkpoints wandb videos run_logs figures)
+KEPT_MESSAGE := Kept: everything outside $(LOG_DIR), including logs/pilot.
 
 PY := uv run python -m
 PILOT_DIR := logs/pilot
@@ -66,10 +55,10 @@ help: ## Show this list of commands
 	var SEEDS "Seeds for study and status" '$(SEEDS)'; \
 	var DEVICE "cpu or mps; use cpu for the study" '$(DEVICE)'; \
 	var WANDB "W&B mode, offline or online" '$(WANDB)'; \
-	var STEPS "Training steps per run; the finished study used 500000" '$(STEPS)'; \
+	var STEPS "Training steps per run; also picks the results folder" '$(STEPS)'; \
 	var JOBS "Runs to train at the same time in study" '$(JOBS)'; \
-	var SNAPSHOT_INTERVAL "Steps between model snapshots; the study used 100000" '$(SNAPSHOT_INTERVAL)'; \
-	var LOG_DIR "Run outputs: logs/steps_<STEPS>, or logs for STEPS=500000" '$(LOG_DIR)'; \
+	var SNAPSHOT_INTERVAL "Steps between model snapshots" '$(SNAPSHOT_INTERVAL)'; \
+	var LOG_DIR "Run outputs; one folder per STEPS value" '$(LOG_DIR)'; \
 	var ARGS "Extra options passed to the underlying command" '$(ARGS)'; \
 	printf "  %s%-18s%s %s\n" "$$yellow" RUN "$$reset" "Run to delete with clean-run, such as ddqn_n3_seed1"; \
 	printf "  %s%-18s%s %s\n" "$$yellow" CONFIRM "$$reset" "Set to yes to skip the clean-results question"; \
@@ -77,7 +66,7 @@ help: ## Show this list of commands
 	example 'make study' "Train all 20 runs"; \
 	example 'make train VARIANT=ddqn_n5 SEED=2' "Train one run"; \
 	example 'make study JOBS=4' "Train 4 runs at a time"; \
-	example 'make figures STEPS=500000' "Make figures for the finished 500,000-step study"; \
+	example 'make study STEPS=500000' "Train all 20 runs for 500,000 steps instead"; \
 	example 'make videos ARGS="--fps 15"' "Record videos at real game speed"; \
 	example 'make test ARGS="-k polyak"' "Run tests matching a word"; \
 	example 'make clean-results' "Delete all study results, after asking"; \
@@ -175,7 +164,7 @@ sync: ## Upload offline runs to Weights & Biases
 
 ##@ Results
 
-figures: ## Make the figures from LOG_DIR's runs (docs/figures for the study)
+figures: ## Make the figures from LOG_DIR's runs, saved in LOG_DIR/figures
 	$(PY) scripts.plot_results --csv-dir "$(LOG_DIR)/csv" \
 		--output "$(FIGURES_DIR)/ablation_comparison.png" \
 		--overestimation-output "$(FIGURES_DIR)/overestimation_evaluation.png" $(ARGS)

@@ -263,3 +263,10 @@ def test_timings_file_accumulates_across_invocations(tmp_path: Path) -> None:
     lines = (tmp_path / "run_logs" / "timings.csv").read_text().splitlines()
     assert len(lines) == 3
     assert lines[0].startswith("ended_at,")
+
+
+def test_default_folder_passes_through_as_the_run_length_folder() -> None:
+    _, template = parse_args(["--total-timesteps", "12000000"])
+    assert template.log_dir is None
+    assert template.output_dir == Path("logs/steps_12000000")
+    assert "--log-dir" not in to_cli_args(template)

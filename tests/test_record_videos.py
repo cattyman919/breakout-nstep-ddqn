@@ -159,3 +159,9 @@ def test_scale_frame_repeats_pixels() -> None:
 def test_invalid_config_raises(overrides: dict[str, Any]) -> None:
     with pytest.raises(ConfigurationError):
         VideoConfig(**overrides)
+
+
+def test_default_folder_follows_the_run_length(tmp_path: Path) -> None:
+    assert VideoConfig().run_dir == Path("logs/steps_500000")
+    assert VideoConfig(steps=12_000_000).run_dir == Path("logs/steps_12000000")
+    assert VideoConfig(steps=12_000_000, log_dir=tmp_path).run_dir == tmp_path
