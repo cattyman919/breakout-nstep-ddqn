@@ -27,13 +27,14 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, ClassVar, Literal
 
 import tyro
+from tqdm import tqdm
 
 from scripts.train import TrainConfig
 from src.exceptions import ConfigurationError
@@ -212,10 +213,98 @@ def timings_path(config: TrainConfig) -> Path:
     return config.output_dir / "run_logs" / "timings.csv"
 
 
+def progress_path(config: TrainConfig) -> Path:
+    """Where a run keeps its step count while it trains."""
+    return config.output_dir / "run_logs" / f"{config.run_name}.progress"
+
+
+def read_progress(config: TrainConfig) -> int:
+    """Return how many steps a running run has reported, or 0 before its first report."""
+    try:
+        return int(progress_path(config).read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        return 0
+
+
+class StudyProgress:
+    """One progress bar for every run the study trains, fed by each run's progress file.
+
+    The bar counts steps across all runs, so its time estimate covers the whole study. Its
+    label lists each running run's percentage. Without ``show_bar`` it does nothing.
+    """
+
+    POLL_SECONDS: ClassVar[float] = 2.0
+
+    def __init__(self, runs: Sequence[TrainConfig], *, show_bar: bool) -> None:
+        self._lock = threading.Lock()
+        self._running: dict[str, TrainConfig] = {}
+        self._completed_steps = 0
+        self._shown = 0
+        self._finished = 0
+        self._count = len(runs)
+        self._bar: tqdm[Any] | None = None
+        if show_bar and runs:
+            self._bar = tqdm(
+                total=sum(run.total_timesteps for run in runs),
+                desc="Study",
+                unit="step",
+                unit_scale=True,
+                dynamic_ncols=True,
+                smoothing=0.05,
+            )
+
+    @property
+    def active(self) -> bool:
+        """Whether a bar is on screen, so messages must be printed above it."""
+        return self._bar is not None
+
+    def started(self, config: TrainConfig) -> None:
+        """Note that a run started."""
+        with self._lock:
+            self._running[config.run_name] = config
+
+    def ended(self, config: TrainConfig, *, finished: bool) -> None:
+        """Note that a run ended; a failed run's remaining steps leave the total."""
+        steps = read_progress(config)
+        with self._lock:
+            self._running.pop(config.run_name, None)
+            if finished:
+                self._completed_steps += config.total_timesteps
+                self._finished += 1
+            else:
+                self._completed_steps += steps
+                if self._bar is not None and self._bar.total is not None:
+                    self._bar.total -= config.total_timesteps - steps
+        progress_path(config).unlink(missing_ok=True)
+
+    def refresh(self) -> None:
+        """Read each running run's progress file and redraw the bar."""
+        if self._bar is None:
+            return
+        with self._lock:
+            running = list(self._running.values())
+            done = self._completed_steps + sum(read_progress(run) for run in running)
+            label = " ".join(
+                f"{run.variant}/{run.seed}:{100 * read_progress(run) // run.total_timesteps}%"
+                for run in running
+            )
+            self._bar.update(max(done - self._shown, 0))
+            self._shown = max(done, self._shown)
+            self._bar.set_postfix_str(f"{self._finished}/{self._count} done | {label}")
+
+    def close(self) -> None:
+        """Close the bar, leaving its last state on screen."""
+        if self._bar is not None:
+            self.refresh()
+            self._bar.close()
+            self._bar = None
+
+
 def train_in_subprocess(config: TrainConfig) -> int:
     """Train one run in its own process and return its exit code."""
     log_path = run_log_path(config)
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    config = dataclasses.replace(config, progress_file=progress_path(config))
     command = [sys.executable, "-m", "scripts.train", *to_cli_args(config)]
     with log_path.open("w", encoding="utf-8") as output:
         return subprocess.run(
@@ -229,10 +318,18 @@ def run_study(
     train_one: Callable[[TrainConfig], int] = train_in_subprocess,
     report: Callable[[str], None] = print,
     clock: Callable[[], float] = time.monotonic,
+    show_progress: bool = False,
 ) -> StudyResult:
-    """Train every unfinished run, ``study.jobs`` at a time, and report each start and end."""
+    """Train every unfinished run, ``study.jobs`` at a time, and report each start and end.
+
+    With ``show_progress``, a bar covering every run stays at the bottom of the terminal, and
+    messages print above it.
+    """
     study_start = clock()
     skipped, pending = plan_runs(study, template)
+    progress = StudyProgress(pending, show_bar=show_progress)
+    if progress.active:
+        report = tqdm.write
     for name in skipped:
         report(f"Skipping {name}: already finished")
     report(f"Training {len(pending)} runs, {study.jobs} at a time.")
@@ -245,9 +342,11 @@ def run_study(
 
     def train_and_report(config: TrainConfig) -> RunTiming:
         say(f"Started  {config.run_name}")
+        progress.started(config)
         start = clock()
         code = train_one(config)
         timing = RunTiming(config.variant, config.seed, clock() - start, finished=code == 0)
+        progress.ended(config, finished=timing.finished)
         took = format_duration(timing.seconds)
         if timing.finished:
             say(f"Finished {config.run_name} in {took}")
@@ -257,16 +356,25 @@ def run_study(
 
     timings: list[RunTiming] = []
     with ThreadPoolExecutor(max_workers=study.jobs) as executor:
-        futures = [executor.submit(train_and_report, config) for config in pending]
+        remaining: set[Future[RunTiming]] = {
+            executor.submit(train_and_report, config) for config in pending
+        }
         try:
-            for future in as_completed(futures):
-                timing = future.result()
-                timings.append(timing)
-                append_timing(timings_path(template), timing)
+            while remaining:
+                done, remaining = wait(
+                    remaining, timeout=StudyProgress.POLL_SECONDS, return_when=FIRST_COMPLETED
+                )
+                for future in done:
+                    timing = future.result()
+                    timings.append(timing)
+                    append_timing(timings_path(template), timing)
+                progress.refresh()
         except KeyboardInterrupt:
             # The terminal also interrupts the training processes; don't start new ones.
             executor.shutdown(wait=False, cancel_futures=True)
             raise
+        finally:
+            progress.close()
     return StudyResult(
         skipped=skipped,
         finished=sorted(timing.run_name for timing in timings if timing.finished),
@@ -298,7 +406,7 @@ def main() -> int:
     if study.jobs > cores:
         log.warning("more_jobs_than_cores", jobs=study.jobs, cores=cores)
     try:
-        result = run_study(study, template)
+        result = run_study(study, template, show_progress=sys.stderr.isatty())
     except KeyboardInterrupt:
         print("Interrupted. Runs that didn't finish need `make clean-run` before retrying.")
         return 130

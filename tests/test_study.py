@@ -270,3 +270,68 @@ def test_default_folder_passes_through_as_the_run_length_folder() -> None:
     assert template.log_dir is None
     assert template.output_dir == Path("logs/steps_12000000")
     assert "--log-dir" not in to_cli_args(template)
+
+
+def test_study_progress_counts_finished_and_running_steps(tmp_path: Path) -> None:
+    from scripts.study import StudyProgress, progress_path
+
+    runs = [
+        TrainConfig(variant="dqn_n1", seed=seed, log_dir=tmp_path, total_timesteps=1_000)
+        for seed in (1, 2, 3)
+    ]
+    progress = StudyProgress(runs, show_bar=True)
+    try:
+        progress.started(runs[0])
+        progress.started(runs[1])
+        progress_path(runs[0]).parent.mkdir(parents=True)
+        progress_path(runs[0]).write_text("400\n")
+        progress.refresh()
+        assert progress._shown == 400
+        progress_path(runs[0]).write_text("1000\n")
+        progress.ended(runs[0], finished=True)
+        assert not progress_path(runs[0]).exists()
+        progress_path(runs[1]).write_text("250\n")
+        progress.ended(runs[1], finished=False)
+        progress.refresh()
+        assert progress._shown == 1_250
+        assert progress._bar is not None and progress._bar.total == 2_250
+    finally:
+        progress.close()
+
+
+def test_study_progress_without_a_bar_does_nothing(tmp_path: Path) -> None:
+    from scripts.study import StudyProgress
+
+    progress = StudyProgress([template_in(tmp_path)], show_bar=False)
+    assert not progress.active
+    progress.refresh()
+    progress.close()
+
+
+def test_run_study_draws_one_bar_and_prints_messages_above_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from scripts.study import progress_path
+
+    def fake_train(config: TrainConfig) -> int:
+        progress_path(config).parent.mkdir(parents=True, exist_ok=True)
+        progress_path(config).write_text(f"{config.total_timesteps}\n")
+        return 0
+
+    template = TrainConfig(log_dir=tmp_path, total_timesteps=1_000)
+    run_study(
+        StudyConfig(variants=("dqn_n1",), seeds=(1, 2), jobs=2),
+        template,
+        fake_train,
+        show_progress=True,
+    )
+    captured = capsys.readouterr()
+    assert "Study" in captured.err
+    assert "2/2 done" in captured.err
+    assert "Finished dqn_n1_seed1" in captured.out
+    assert not list((tmp_path / "run_logs").glob("*.progress"))
+
+
+def test_progress_file_option_survives_the_command_line(tmp_path: Path) -> None:
+    config = TrainConfig(log_dir=tmp_path, progress_file=tmp_path / "x.progress")
+    assert tyro.cli(TrainConfig, args=to_cli_args(config)) == config

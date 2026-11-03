@@ -188,6 +188,9 @@ Networks and buffers raise the built-in `ValueError` when a caller passes bad in
 - **`run`:** sets up the loggers, calls `train` and saves the checkpoint.
 - **`save_checkpoint`:** writes the final model to `{log_dir}/checkpoints/{run_name}.pt`. It runs
   only after a successful run.
+- **`RunProgress`:** shows a progress bar in a terminal and, when `progress_file` is set, keeps that
+  file updated with the step count every 10,000 steps. The file is replaced atomically, so a reader
+  never sees half a number. `progress_file` isn't a hyperparameter; `scripts/study.py` sets it.
 - **`save_snapshot`:** writes the current model to
   `{log_dir}/checkpoints/{run_name}/step_{step}.pt`, at the start of a run and every
   `snapshot_interval` steps. Only runs whose seed is in `snapshot_seeds` save these (seed 1 by
@@ -203,6 +206,9 @@ starts.
   train.
 - **`to_cli_args`:** turns a `TrainConfig` back into `scripts.train` options, so each process gets
   exactly the validated settings. A test checks that the options recreate the same config.
+- **`StudyProgress`:** draws one bar for every run being trained, reading each run's progress file,
+  `{log_dir}/run_logs/{run_name}.progress`, every 2 seconds. A failed run's remaining steps leave
+  the total, so the time estimate stays right.
 - **`run_study`:** runs `train_in_subprocess` for each pending run from a thread pool, and collects
   which runs finished or failed and how long each took. Tests pass in a fake training function and
   clock in their place.

@@ -5,16 +5,20 @@ Run from the project root::
     uv run python -m scripts.train --variant ddqn_n3 --seed 1 --device cpu
 """
 
+import os
+import sys
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Literal
+from types import TracebackType
+from typing import Any, ClassVar, Literal, Self
 
 import gymnasium as gym
 import numpy as np
 import torch
 import tyro
 import wandb
+from tqdm import tqdm
 
 from src.agents import AgentConfig, DQNAgent
 from src.buffers import NStepWindow, ReplayBuffer
@@ -73,6 +77,8 @@ class TrainConfig:
     """Environment steps between model snapshots. The untrained model is saved too."""
     snapshot_seeds: tuple[int, ...] = (1,)
     """Seeds whose runs save snapshots, for scripts/record_videos.py."""
+    progress_file: Path | None = None
+    """Not a hyperparameter: a file to keep updated with the step count, for scripts/study.py."""
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -162,6 +168,71 @@ class TrainConfig:
         return self.epsilon_start + progress * (self.epsilon_end - self.epsilon_start)
 
 
+class RunProgress:
+    """Reports a run's progress: a bar in a terminal, and optionally a step-count file.
+
+    The bar shows only when ``show_bar`` is true, so log files never fill with redraws. The
+    file is replaced atomically, so ``scripts/study.py`` never reads a half-written number.
+    Neither affects training.
+    """
+
+    BAR_EVERY: ClassVar[int] = 1_000
+    FILE_EVERY: ClassVar[int] = 10_000
+
+    def __init__(self, total: int, label: str, file: Path | None, *, show_bar: bool) -> None:
+        self._total = total
+        self._file = file
+        self._shown = 0
+        self._bar: tqdm[Any] | None = None
+        if show_bar:
+            self._bar = tqdm(
+                total=total,
+                desc=label,
+                unit="step",
+                unit_scale=True,
+                dynamic_ncols=True,
+                smoothing=0.05,
+                mininterval=1.0,
+            )
+        self._write_file(0)
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.close()
+
+    def update(self, step: int, rolling_return: float | None, epsilon: float) -> None:
+        """Record that ``step`` steps are done; cheap enough to call on every step."""
+        finished = step == self._total
+        if self._bar is not None and (step % self.BAR_EVERY == 0 or finished):
+            self._bar.update(step - self._shown)
+            self._shown = step
+            score = "-" if rolling_return is None else f"{rolling_return:.1f}"
+            self._bar.set_postfix_str(f"return {score}, eps {epsilon:.2f}", refresh=False)
+        if step % self.FILE_EVERY == 0 or finished:
+            self._write_file(step)
+
+    def close(self) -> None:
+        """Close the bar, leaving its last state on screen."""
+        if self._bar is not None:
+            self._bar.close()
+            self._bar = None
+
+    def _write_file(self, step: int) -> None:
+        if self._file is None:
+            return
+        self._file.parent.mkdir(parents=True, exist_ok=True)
+        partial = self._file.with_suffix(self._file.suffix + ".tmp")
+        partial.write_text(f"{step}\n", encoding="utf-8")
+        os.replace(partial, self._file)
+
+
 def steps_log_dir(total_timesteps: int) -> Path:
     """Return the default output folder for runs of a given length, such as logs/steps_500000.
 
@@ -184,6 +255,7 @@ def train(
     metrics: DualLogger,
     log: Any,
     env_factory: Callable[[], gym.Env[Any, Any]] = make_breakout_env,
+    progress: RunProgress | None = None,
 ) -> DQNAgent:
     """Run one complete training run and return the trained agent.
 
@@ -253,6 +325,9 @@ def train(
                     episode_return = 0.0
                     episode_length = 0
                     observation = game.reset()
+
+                if progress is not None:
+                    progress.update(step, metrics.rolling_return, epsilon)
 
                 if step > config.learning_starts and step % config.train_frequency == 0:
                     batch = replay.sample(config.batch_size, rng, device)
@@ -340,8 +415,17 @@ def run(
     except (BaseProjectError, OSError, wandb.Error):
         log.exception("run_setup_failed")
         raise
-    with metrics:
-        agent = train(config, device, metrics, log, env_factory)
+    with (
+        metrics,
+        RunProgress(
+            config.total_timesteps,
+            config.run_name,
+            config.progress_file,
+            show_bar=sys.stderr.isatty(),
+        ) as progress,
+    ):
+        agent = train(config, device, metrics, log, env_factory, progress)
+        progress.close()
         try:
             checkpoint = save_checkpoint(agent, config)
         except OSError:

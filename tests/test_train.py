@@ -443,3 +443,50 @@ def test_checkpoints_and_hyperparams_use_the_resolved_folder(tmp_path: Path) -> 
         agent = train(config, torch.device("cpu"), metrics, log, env_factory=factory([]))
     path = save_checkpoint(agent, config)
     assert torch.load(path)["config"]["log_dir"] == str(tmp_path)
+
+
+def test_progress_file_tracks_steps_and_ends_at_the_total(tmp_path: Path) -> None:
+    from scripts.train import RunProgress
+
+    path = tmp_path / "run.progress"
+    progress = RunProgress(25_000, "run", path, show_bar=False)
+    assert path.read_text() == "0\n"
+    for step in range(1, 25_001):
+        progress.update(step, None, 1.0)
+        if step == 10_000:
+            assert path.read_text() == "10000\n"
+        if step == 19_999:
+            assert path.read_text() == "10000\n"
+    assert path.read_text() == "25000\n"
+    assert not path.with_suffix(".progress.tmp").exists()
+
+
+def test_progress_bar_reaches_the_total_with_return_and_epsilon(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from scripts.train import RunProgress
+
+    with RunProgress(2_500, "dqn_n1_seed1", None, show_bar=True) as progress:
+        for step in range(1, 2_501):
+            progress.update(step, 12.345 if step > 1_000 else None, 0.05)
+    err = capsys.readouterr().err
+    assert "dqn_n1_seed1" in err
+    assert "2.50k/2.50k" in err
+    assert "return 12.3, eps 0.05" in err
+
+
+def test_training_reports_progress_without_changing_results(tmp_path: Path) -> None:
+    from scripts.train import RunProgress
+
+    config = short_config(tmp_path / "a")
+    path = tmp_path / "a.progress"
+    log = make_structured_logger(config.run_name, config.seed)
+    with (
+        DualLogger(config.run_name, {}, wandb_mode="offline", log_dir=tmp_path / "a") as metrics,
+        RunProgress(config.total_timesteps, "run", path, show_bar=False) as progress,
+    ):
+        train(config, torch.device("cpu"), metrics, log, factory([]), progress)
+        with_progress = metrics.csv_path
+    assert path.read_text() == f"{config.total_timesteps}\n"
+    without_progress = run_scripted(short_config(tmp_path / "b"), [])
+    assert read_rows(with_progress) == without_progress

@@ -24,8 +24,28 @@ from typing import Any, ClassVar, Literal, Self
 import structlog
 import wandb
 from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 from src.exceptions import ConfigurationError
+
+
+class ProgressSafeStream:
+    """A stderr stream that prints each line above any progress bar instead of through it."""
+
+    def __init__(self) -> None:
+        self._pending = ""
+
+    def write(self, text: str) -> int:
+        """Buffer text and print every complete line with ``tqdm.write``."""
+        self._pending += text
+        while "\n" in self._pending:
+            line, self._pending = self._pending.split("\n", 1)
+            tqdm.write(line, file=sys.stderr)
+        return len(text)
+
+    def flush(self) -> None:
+        """Flush stderr."""
+        sys.stderr.flush()
 
 
 def make_structured_logger(run_name: str, seed: int | None) -> Any:
@@ -35,7 +55,7 @@ def make_structured_logger(run_name: str, seed: int | None) -> Any:
     null until a call passes the current step.
     """
     return structlog.wrap_logger(
-        structlog.PrintLogger(sys.stderr),
+        structlog.PrintLogger(ProgressSafeStream()),  # type: ignore[arg-type]
         processors=[
             structlog.processors.add_log_level,
             structlog.processors.TimeStamper(fmt="iso", utc=True),

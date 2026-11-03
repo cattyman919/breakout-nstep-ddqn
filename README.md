@@ -200,9 +200,30 @@ changes. See [Parallel training](#parallel-training).
 **Keep the Mac awake:** in a second terminal, run `caffeinate -i` until training finishes, then
 stop it with `Ctrl+C`. This prevents idle sleep, but closing the lid can still put the Mac to sleep.
 
-**What you'll see:** one line when each run starts and one when it finishes or fails, then a
-summary from `make status`. Each run's full output goes to its own file in
+**What you'll see:** one line when each run starts and one when it finishes or fails, a progress
+bar for the whole study at the bottom of the terminal, and a timing summary at the end. The times
+below are an illustration:
+
+```text
+21:32:17 Started  dqn_n1_seed1
+...
+Study:  39%|███████▊            | 18.6M/48.0M [4:52:10<7:41:03, ... 0/4 done | dqn_n1/1:42% ddqn_n1/1:40% ...]
+```
+
+The bar counts steps across every run being trained, so its time estimate is for the whole
+study. After the `|` it shows how many runs are done and each running run's percentage, as
+`variant/seed:percent`. Each run's full output goes to its own file in
 `logs/steps_12000000/run_logs/`, such as `ddqn_n3_seed1.log`, so parallel runs never mix their output.
+
+`make train` shows a bar for its one run instead, with its current 100-game average score and
+exploration rate:
+
+```text
+ddqn_n5_seed1:  50%|██████████          | 6.00M/12.0M [58:12<58:12, 1.72kstep/s, return 87.3, eps 0.05]
+```
+
+The bars appear only in a terminal. When output goes to a file, such as a run's log, they're left
+out so the file stays readable. They don't affect training or results.
 
 **If it stops partway:** run `make study` again. It skips runs that already finished. A run that
 stopped partway won't restart by itself, because its results are protected from being overwritten.

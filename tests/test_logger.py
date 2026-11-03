@@ -89,3 +89,17 @@ def test_structured_logger_records_the_stack_trace(
     entry = json.loads(capsys.readouterr().err)
     assert "ValueError: bad value" in entry["exception"]
     assert "Traceback" in entry["exception"]
+
+
+def test_structured_log_lines_print_whole_above_a_progress_bar(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from tqdm import tqdm
+
+    log = make_structured_logger("run", 1)
+    with tqdm(total=10, desc="bar") as bar:
+        bar.update(3)
+        log.info("first")
+        log.info("second")
+    lines = [line for line in capsys.readouterr().err.splitlines() if line.startswith("{")]
+    assert [json.loads(line)["event"] for line in lines] == ["first", "second"]
