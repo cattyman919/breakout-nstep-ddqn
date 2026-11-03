@@ -272,29 +272,46 @@ def test_default_folder_passes_through_as_the_run_length_folder() -> None:
     assert "--log-dir" not in to_cli_args(template)
 
 
-def test_study_progress_counts_finished_and_running_steps(tmp_path: Path) -> None:
+def test_study_progress_tracks_each_variant_and_the_whole_study(tmp_path: Path) -> None:
     from scripts.study import StudyProgress, progress_path
 
-    runs = [
-        TrainConfig(variant="dqn_n1", seed=seed, log_dir=tmp_path, total_timesteps=1_000)
-        for seed in (1, 2, 3)
-    ]
-    progress = StudyProgress(runs, show_bar=True)
+    def run(variant: str, seed: int) -> TrainConfig:
+        return TrainConfig(
+            variant=variant,  # type: ignore[arg-type]
+            seed=seed,
+            log_dir=tmp_path,
+            total_timesteps=1_000,
+        )
+
+    a1, a2, b1 = run("dqn_n1", 1), run("dqn_n1", 2), run("ddqn_n5", 1)
+    progress = StudyProgress([a1, a2, b1], show_bar=True)
     try:
-        progress.started(runs[0])
-        progress.started(runs[1])
-        progress_path(runs[0]).parent.mkdir(parents=True)
-        progress_path(runs[0]).write_text("400\n")
+        assert list(progress._bars) == ["dqn_n1", "ddqn_n5", "study"]
+        for config in (a1, a2, b1):
+            progress.started(config)
+        progress_path(a1).parent.mkdir(parents=True)
+        progress_path(a1).write_text("400\n")
+        progress_path(b1).write_text("100\n")
         progress.refresh()
-        assert progress._shown == 400
-        progress_path(runs[0]).write_text("1000\n")
-        progress.ended(runs[0], finished=True)
-        assert not progress_path(runs[0]).exists()
-        progress_path(runs[1]).write_text("250\n")
-        progress.ended(runs[1], finished=False)
+        assert progress._tallies["dqn_n1"].shown_steps == 400
+        assert progress._tallies["ddqn_n5"].shown_steps == 100
+        assert progress._tallies["study"].shown_steps == 500
+        label = progress._label("dqn_n1", progress._tallies["dqn_n1"], [(a1, 400), (a2, 0)])
+        assert label == "0/2 done, seed 1: 40% seed 2: 0%"
+
+        progress_path(a1).write_text("1000\n")
+        progress.ended(a1, finished=True)
+        assert not progress_path(a1).exists()
+        progress_path(a2).write_text("250\n")
+        progress.ended(a2, finished=False)
         progress.refresh()
-        assert progress._shown == 1_250
-        assert progress._bar is not None and progress._bar.total == 2_250
+        dqn = progress._tallies["dqn_n1"]
+        assert (dqn.shown_steps, dqn.total_steps, dqn.finished_runs) == (1_250, 1_250, 1)
+        assert progress._bars["dqn_n1"].total == 1_250
+        assert progress._tallies["study"].total_steps == 2_250
+        assert progress._label("study", progress._tallies["study"], [(b1, 100)]) == (
+            "1/3 done, 1 running"
+        )
     finally:
         progress.close()
 
@@ -326,7 +343,8 @@ def test_run_study_draws_one_bar_and_prints_messages_above_it(
         show_progress=True,
     )
     captured = capsys.readouterr()
-    assert "Study" in captured.err
+    assert "study" in captured.err
+    assert "dqn_n1" in captured.err
     assert "2/2 done" in captured.err
     assert "Finished dqn_n1_seed1" in captured.out
     assert not list((tmp_path / "run_logs").glob("*.progress"))

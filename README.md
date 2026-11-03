@@ -200,19 +200,23 @@ changes. See [Parallel training](#parallel-training).
 **Keep the Mac awake:** in a second terminal, run `caffeinate -i` until training finishes, then
 stop it with `Ctrl+C`. This prevents idle sleep, but closing the lid can still put the Mac to sleep.
 
-**What you'll see:** one line when each run starts and one when it finishes or fails, a progress
-bar for the whole study at the bottom of the terminal, and a timing summary at the end. The times
-below are an illustration:
+**What you'll see:** one line when each run starts and one when it finishes or fails, progress bars
+at the bottom of the terminal, and a timing summary at the end. There's one bar per variant, plus a
+bar for the whole study. The times below are an illustration:
 
 ```text
-21:32:17 Started  dqn_n1_seed1
-...
-Study:  39%|███████▊            | 18.6M/48.0M [4:52:10<7:41:03, ... 0/4 done | dqn_n1/1:42% ddqn_n1/1:40% ...]
+21:32:34 Finished dqn_n1_seed3 in 1h 58m
+dqn_n1 :  84%|█████████████████▌   | 50.4M/60.0M [5:51:10<1:07:02, ... 3/5 done, seed 4: 62% seed 5: 57%]
+ddqn_n1:   8%|█▋                   | 4.80M/60.0M [0:25:12<4:49:39, ... 0/5 done, seed 1: 21% seed 2: 19%]
+ddqn_n3:   0%|                     | 0.00/60.0M [00:00<?, ?step/s, 0/5 done]
+ddqn_n5:   0%|                     | 0.00/60.0M [00:00<?, ?step/s, 0/5 done]
+study  :  23%|████▌                | 55.2M/240M [6:16:22<21:01:40, ... 3/20 done, 4 running]
 ```
 
-The bar counts steps across every run being trained, so its time estimate is for the whole
-study. After the `|` it shows how many runs are done and each running run's percentage, as
-`variant/seed:percent`. Each run's full output goes to its own file in
+A variant's bar counts the steps of all its seeds, and the study bar counts every run, so each time
+estimate covers that whole set. After the speed, each bar shows how many runs are done and the
+percentage of each seed that's training. A variant's estimate is rough until it has started, since
+the runs train in variant order. Each run's full output goes to its own file in
 `logs/steps_12000000/run_logs/`, such as `ddqn_n3_seed1.log`, so parallel runs never mix their output.
 
 `make train` shows a bar for its one run instead, with its current 100-game average score and

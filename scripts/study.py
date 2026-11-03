@@ -226,37 +226,60 @@ def read_progress(config: TrainConfig) -> int:
         return 0
 
 
-class StudyProgress:
-    """One progress bar for every run the study trains, fed by each run's progress file.
+@dataclass
+class _Tally:
+    """Steps and runs counted toward one progress bar."""
 
-    The bar counts steps across all runs, so its time estimate covers the whole study. Its
-    label lists each running run's percentage. Without ``show_bar`` it does nothing.
+    total_steps: int = 0
+    completed_steps: int = 0
+    shown_steps: int = 0
+    runs: int = 0
+    finished_runs: int = 0
+
+
+class StudyProgress:
+    """Progress bars for the runs the study trains: one per variant, plus one for the whole study.
+
+    Each running run's progress file is read every ``POLL_SECONDS``. A variant's bar covers all of
+    its runs being trained, and the study bar covers every run, so each time estimate is for the
+    whole set. Without ``show_bar`` it does nothing.
     """
 
     POLL_SECONDS: ClassVar[float] = 2.0
+    STUDY_LABEL: ClassVar[str] = "study"
 
     def __init__(self, runs: Sequence[TrainConfig], *, show_bar: bool) -> None:
         self._lock = threading.Lock()
         self._running: dict[str, TrainConfig] = {}
-        self._completed_steps = 0
-        self._shown = 0
-        self._finished = 0
-        self._count = len(runs)
-        self._bar: tqdm[Any] | None = None
+        self._tallies: dict[str, _Tally] = {}
+        for run in runs:
+            for key in (run.variant, self.STUDY_LABEL):
+                tally = self._tallies.setdefault(key, _Tally())
+                tally.total_steps += run.total_timesteps
+                tally.runs += 1
+        # The study's own tally goes last, so its bar sits at the bottom.
+        study = self._tallies.pop(self.STUDY_LABEL, None)
+        if study is not None:
+            self._tallies[self.STUDY_LABEL] = study
+        self._bars: dict[str, tqdm[Any]] = {}
         if show_bar and runs:
-            self._bar = tqdm(
-                total=sum(run.total_timesteps for run in runs),
-                desc="Study",
-                unit="step",
-                unit_scale=True,
-                dynamic_ncols=True,
-                smoothing=0.05,
-            )
+            width = max(len(key) for key in self._tallies)
+            for position, (key, tally) in enumerate(self._tallies.items()):
+                self._bars[key] = tqdm(
+                    total=tally.total_steps,
+                    desc=key.ljust(width),
+                    unit="step",
+                    unit_scale=True,
+                    dynamic_ncols=True,
+                    smoothing=0.05,
+                    position=position,
+                    leave=True,
+                )
 
     @property
     def active(self) -> bool:
-        """Whether a bar is on screen, so messages must be printed above it."""
-        return self._bar is not None
+        """Whether bars are on screen, so messages must be printed above them."""
+        return bool(self._bars)
 
     def started(self, config: TrainConfig) -> None:
         """Note that a run started."""
@@ -264,40 +287,59 @@ class StudyProgress:
             self._running[config.run_name] = config
 
     def ended(self, config: TrainConfig, *, finished: bool) -> None:
-        """Note that a run ended; a failed run's remaining steps leave the total."""
+        """Note that a run ended; a failed run's remaining steps leave the totals."""
         steps = read_progress(config)
         with self._lock:
             self._running.pop(config.run_name, None)
-            if finished:
-                self._completed_steps += config.total_timesteps
-                self._finished += 1
-            else:
-                self._completed_steps += steps
-                if self._bar is not None and self._bar.total is not None:
-                    self._bar.total -= config.total_timesteps - steps
+            for key in (config.variant, self.STUDY_LABEL):
+                tally = self._tallies[key]
+                if finished:
+                    tally.completed_steps += config.total_timesteps
+                    tally.finished_runs += 1
+                else:
+                    tally.completed_steps += steps
+                    tally.total_steps -= config.total_timesteps - steps
+                    bar = self._bars.get(key)
+                    if bar is not None:
+                        bar.total = tally.total_steps
         progress_path(config).unlink(missing_ok=True)
 
     def refresh(self) -> None:
-        """Read each running run's progress file and redraw the bar."""
-        if self._bar is None:
+        """Read each running run's progress file and redraw every bar."""
+        if not self._bars:
             return
         with self._lock:
-            running = list(self._running.values())
-            done = self._completed_steps + sum(read_progress(run) for run in running)
-            label = " ".join(
-                f"{run.variant}/{run.seed}:{100 * read_progress(run) // run.total_timesteps}%"
-                for run in running
-            )
-            self._bar.update(max(done - self._shown, 0))
-            self._shown = max(done, self._shown)
-            self._bar.set_postfix_str(f"{self._finished}/{self._count} done | {label}")
+            running = {name: (run, read_progress(run)) for name, run in self._running.items()}
+            for key, bar in self._bars.items():
+                mine = [
+                    (run, steps)
+                    for run, steps in running.values()
+                    if key in (run.variant, self.STUDY_LABEL)
+                ]
+                tally = self._tallies[key]
+                done = tally.completed_steps + sum(steps for _, steps in mine)
+                bar.update(max(done - tally.shown_steps, 0))
+                tally.shown_steps = max(done, tally.shown_steps)
+                bar.set_postfix_str(self._label(key, tally, mine), refresh=False)
+                bar.refresh()
 
     def close(self) -> None:
-        """Close the bar, leaving its last state on screen."""
-        if self._bar is not None:
+        """Close every bar, leaving their last state on screen."""
+        if self._bars:
             self.refresh()
-            self._bar.close()
-            self._bar = None
+            for bar in self._bars.values():
+                bar.close()
+            self._bars = {}
+
+    def _label(self, key: str, tally: _Tally, running: Sequence[tuple[TrainConfig, int]]) -> str:
+        """Say how many runs are done, and each running run's percentage."""
+        done = f"{tally.finished_runs}/{tally.runs} done"
+        if key == self.STUDY_LABEL:
+            return f"{done}, {len(running)} running"
+        seeds = " ".join(
+            f"seed {run.seed}: {100 * steps // run.total_timesteps}%" for run, steps in running
+        )
+        return f"{done}, {seeds}" if seeds else done
 
 
 def train_in_subprocess(config: TrainConfig) -> int:

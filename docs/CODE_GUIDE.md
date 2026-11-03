@@ -206,9 +206,9 @@ starts.
   train.
 - **`to_cli_args`:** turns a `TrainConfig` back into `scripts.train` options, so each process gets
   exactly the validated settings. A test checks that the options recreate the same config.
-- **`StudyProgress`:** draws one bar for every run being trained, reading each run's progress file,
-  `{log_dir}/run_logs/{run_name}.progress`, every 2 seconds. A failed run's remaining steps leave
-  the total, so the time estimate stays right.
+- **`StudyProgress`:** draws one bar per variant and one for the whole study, reading each running
+  run's progress file, `{log_dir}/run_logs/{run_name}.progress`, every 2 seconds. A failed run's
+  remaining steps leave its variant's and the study's totals, so the time estimates stay right.
 - **`run_study`:** runs `train_in_subprocess` for each pending run from a thread pool, and collects
   which runs finished or failed and how long each took. Tests pass in a fake training function and
   clock in their place.
