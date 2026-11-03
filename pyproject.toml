@@ -26,3 +26,7 @@ dev = [
 
 [tool.ruff]
 line-length = 100
+
+[tool.mypy]
+# scripts/ has no __init__.py, so map files to modules from the project root.
+explicit_package_bases = true

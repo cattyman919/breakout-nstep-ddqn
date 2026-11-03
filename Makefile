@@ -14,6 +14,7 @@ DEVICE ?= cpu
 WANDB ?= offline
 STEPS ?= 500000
 SNAPSHOT_INTERVAL ?= 100000
+JOBS ?= 1
 ARGS ?=
 
 # Runs of a different length get their own folder, so they never mix with the 500,000-step study.
@@ -60,6 +61,7 @@ help: ## Show this list of commands
 	var DEVICE "cpu or mps; use cpu for the study" '$(DEVICE)'; \
 	var WANDB "W&B mode, offline or online" '$(WANDB)'; \
 	var STEPS "Training steps per run for train and study" '$(STEPS)'; \
+	var JOBS "Runs to train at the same time in study" '$(JOBS)'; \
 	var SNAPSHOT_INTERVAL "Steps between model snapshots" '$(SNAPSHOT_INTERVAL)'; \
 	var LOG_DIR "Run outputs; logs/steps_<STEPS> if STEPS changes" '$(LOG_DIR)'; \
 	var ARGS "Extra options passed to the underlying command" '$(ARGS)'; \
@@ -67,6 +69,7 @@ help: ## Show this list of commands
 	printf "\n%sExamples:%s\n" "$$bold" "$$reset"; \
 	example 'make study' "Train all 20 runs"; \
 	example 'make train VARIANT=ddqn_n5 SEED=2' "Train one run"; \
+	example 'make study JOBS=4' "Train 4 runs at a time"; \
 	example 'make study STEPS=2000000' "Train all 20 runs for 2 million steps"; \
 	example 'make videos ARGS="--fps 15"' "Record videos at real game speed"; \
 	example 'make test ARGS="-k polyak"' "Run tests matching a word"; \
@@ -133,30 +136,10 @@ train: ## Train one run, chosen with VARIANT and SEED
 		--wandb-mode $(WANDB) --log-dir "$(LOG_DIR)" --total-timesteps $(STEPS) \
 		--snapshot-interval $(SNAPSHOT_INTERVAL) $(ARGS)
 
-study: ## Train all 20 runs, skipping finished ones (a little over an hour)
-	@mkdir -p "$(LOG_DIR)"; \
-	failed=""; \
-	for variant in $(VARIANTS); do \
-		for seed in $(SEEDS); do \
-			run="$${variant}_seed$${seed}"; \
-			if [ -f "$(LOG_DIR)/checkpoints/$$run.pt" ]; then \
-				echo "Skipping $$run: already finished"; \
-				continue; \
-			fi; \
-			echo "=== Training $$run"; \
-			$(PY) scripts.train --variant "$$variant" --seed "$$seed" --device $(DEVICE) \
-				--wandb-mode $(WANDB) --log-dir "$(LOG_DIR)" --total-timesteps $(STEPS) \
-				--snapshot-interval $(SNAPSHOT_INTERVAL) $(ARGS) 2>&1 \
-				| tee -a "$(LOG_DIR)/study.log"; \
-			if [ "$${PIPESTATUS[0]}" -ne 0 ]; then failed="$$failed $$run"; fi; \
-		done; \
-	done; \
-	if [ -n "$$failed" ]; then \
-		echo "These runs did not finish:$$failed"; \
-		echo "See $(LOG_DIR)/study.log and the Troubleshooting section of README.md."; \
-		exit 1; \
-	fi; \
-	echo "All runs finished."
+study: ## Train all 20 runs, skipping finished ones; JOBS=4 trains 4 at a time
+	$(PY) scripts.study --jobs $(JOBS) --variants $(VARIANTS) --seeds $(SEEDS) \
+		--device $(DEVICE) --wandb-mode $(WANDB) --log-dir "$(LOG_DIR)" \
+		--total-timesteps $(STEPS) --snapshot-interval $(SNAPSHOT_INTERVAL) $(ARGS)
 
 status: ## Show which study runs are finished, incomplete or not started
 	@finished=0; total=0; \
