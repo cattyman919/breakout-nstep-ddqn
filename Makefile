@@ -11,7 +11,7 @@ SEED ?= 1
 VARIANTS ?= dqn_n1 ddqn_n1 ddqn_n3 ddqn_n5
 SEEDS ?= 1 2 3 4 5
 DEVICE ?= cpu
-WANDB ?= online
+WANDB ?= offline
 LOG_DIR ?= logs
 ARGS ?=
 
