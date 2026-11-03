@@ -1,5 +1,6 @@
 """Planning, parallel execution and option passing for the study command."""
 
+import csv
 import threading
 import time
 from pathlib import Path
@@ -8,11 +9,15 @@ import pytest
 import tyro
 
 from scripts.study import (
+    RunTiming,
     StudyConfig,
+    StudyResult,
     default_train_config,
+    format_duration,
     parse_args,
     plan_runs,
     run_study,
+    timing_summary,
     to_cli_args,
 )
 from scripts.train import TrainConfig
@@ -185,3 +190,76 @@ def test_real_runs_train_in_parallel_with_their_own_logs(tmp_path: Path) -> None
     for run in ("dqn_n1_seed1", "ddqn_n3_seed1"):
         assert (tmp_path / "checkpoints" / f"{run}.pt").exists()
         assert '"run_finished"' in (tmp_path / "run_logs" / f"{run}.log").read_text()
+
+
+@pytest.mark.parametrize(
+    ("seconds", "text"),
+    [(0, "0s"), (42.4, "42s"), (185, "3m 05s"), (3599.6, "1h 00m"), (4440, "1h 14m")],
+)
+def test_format_duration(seconds: float, text: str) -> None:
+    assert format_duration(seconds) == text
+
+
+def test_timing_summary_totals_per_variant_and_overall() -> None:
+    result = StudyResult(
+        skipped=["dqn_n1_seed3"],
+        finished=[],
+        failed=[],
+        timings=[
+            RunTiming("dqn_n1", 1, 200.0, finished=True),
+            RunTiming("dqn_n1", 2, 220.0, finished=True),
+            RunTiming("ddqn_n3", 1, 180.0, finished=True),
+            RunTiming("ddqn_n3", 2, 999.0, finished=False),
+        ],
+        wall_seconds=300.0,
+    )
+
+    lines = timing_summary(result, ["dqn_n1", "ddqn_n1", "ddqn_n3"])
+
+    assert lines[2].split() == ["dqn_n1", "2", "7m", "00s", "3m", "30s"]
+    assert lines[3].split() == ["ddqn_n3", "1", "3m", "00s", "3m", "00s"]
+    assert lines[4].split() == ["all", "3", "10m", "00s", "3m", "20s"]
+    assert lines[5] == "Wall-clock time: 5m 00s, for 10m 00s of training"
+    assert "skipped" in lines[6]
+    assert not any("ddqn_n1 " in line for line in lines)
+
+
+def test_timing_summary_is_empty_without_finished_runs() -> None:
+    result = StudyResult([], [], ["a"], [RunTiming("dqn_n1", 1, 5.0, False)], 5.0)
+    assert timing_summary(result, ["dqn_n1"]) == []
+
+
+def test_run_study_measures_each_run_and_records_it(tmp_path: Path) -> None:
+    ticks = iter(range(0, 1000, 10))
+
+    def fake_train(config: TrainConfig) -> int:
+        return 1 if config.seed == 2 else 0
+
+    messages: list[str] = []
+    result = run_study(
+        StudyConfig(variants=("dqn_n1",), seeds=(1, 2)),
+        template_in(tmp_path),
+        fake_train,
+        report=messages.append,
+        clock=lambda: float(next(ticks)),
+    )
+
+    assert sorted(timing.seconds for timing in result.timings) == [10.0, 10.0]
+    assert result.wall_seconds == 50.0
+    assert any(message.endswith("Finished dqn_n1_seed1 in 10s") for message in messages)
+    assert any("FAILED   dqn_n1_seed2 after 10s" in message for message in messages)
+    with (tmp_path / "run_logs" / "timings.csv").open(newline="", encoding="utf-8") as file:
+        rows = list(csv.DictReader(file))
+    assert [(row["run_name"], row["seconds"], row["result"]) for row in rows] == [
+        ("dqn_n1_seed1", "10.0", "finished"),
+        ("dqn_n1_seed2", "10.0", "failed"),
+    ]
+
+
+def test_timings_file_accumulates_across_invocations(tmp_path: Path) -> None:
+    study = StudyConfig(variants=("dqn_n1",), seeds=(1,))
+    run_study(study, template_in(tmp_path), lambda config: 1, report=lambda _: None)
+    run_study(study, template_in(tmp_path), lambda config: 0, report=lambda _: None)
+    lines = (tmp_path / "run_logs" / "timings.csv").read_text().splitlines()
+    assert len(lines) == 3
+    assert lines[0].startswith("ended_at,")

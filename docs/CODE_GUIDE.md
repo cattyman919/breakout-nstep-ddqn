@@ -200,7 +200,10 @@ starts.
 - **`to_cli_args`:** turns a `TrainConfig` back into `scripts.train` options, so each process gets
   exactly the validated settings. A test checks that the options recreate the same config.
 - **`run_study`:** runs `train_in_subprocess` for each pending run from a thread pool, and collects
-  which runs finished or failed. Tests pass in a fake training function in its place.
+  which runs finished or failed and how long each took. Tests pass in a fake training function and
+  clock in their place.
+- **`timing_summary`:** builds the end-of-study table of training time per variant and in total.
+  `append_timing` records each run's time in `{log_dir}/run_logs/timings.csv` as it ends.
 
 Each run is a separate process using one CPU core, so parallel runs can't affect each other's
 results.

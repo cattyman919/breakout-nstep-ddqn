@@ -392,8 +392,26 @@ good starting point. More jobs use the slower efficiency cores. A MacBook Air ha
 under long, heavy load, so the speedup is less than the number of jobs. Each run also needs a few
 hundred MB of memory.
 
-**Output:** the terminal shows one line when each run starts and one when it finishes or fails. Each
-run's full output goes to `logs/run_logs/{variant}_seed{seed}.log`.
+**Output:** the terminal shows one line when each run starts and one when it finishes or fails, with
+how long it took. Each run's full output goes to `logs/run_logs/{variant}_seed{seed}.log`.
+
+**Timing:** at the end, `make study` prints a table of training time per variant and in total:
+
+```text
+Training time for the runs trained now:
+  variant    runs      total    per run
+  dqn_n1        5     18m 02s     3m 36s
+  ...
+  all          20     1h 14m      3m 42s
+Wall-clock time: 22m 10s, for 1h 14m of training
+```
+
+The numbers above are an illustration, not a measurement. The first figure is how long the command
+took; the second is the runs' times added up, which is larger when runs overlap. Runs trained in
+parallel each take a little longer than they would alone, because they share the machine. Runs
+skipped as already finished aren't included. Every run's time is also appended to
+`logs/run_logs/timings.csv` as soon as it ends, so the record survives an interruption and builds up
+across invocations.
 
 **Stopping:** `Ctrl+C` stops every run that's training. Those runs then show as incomplete in
 `make status`, and each needs `make clean-run RUN=<name>` before `make study` can retrain it.
