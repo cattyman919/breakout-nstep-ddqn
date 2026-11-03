@@ -3,10 +3,32 @@
 A reinforcement learning study of whether **n-step returns improve Double DQN** on Atari
 Breakout, using the game's 128 bytes of RAM as the observation instead of pixels.
 
-> **Status: implemented, and the pilot passed. The 20-run study has not been run yet.**
+> **Status: the 500,000-step study is complete, with results in `logs/`. The `make` commands now
+> default to 12 million steps per run, with a snapshot every 2 million, saved in
+> `logs/steps_12000000`.** See [Default run length](#default-run-length).
+
+## Default run length
+
+| Setting | `make` default | The finished study |
+|---|---|---|
+| `STEPS` | `12000000` | `500000` |
+| `SNAPSHOT_INTERVAL` | `2000000` | `100000` |
+| Results folder | `logs/steps_12000000` | `logs/` |
+
+To work with the finished 500,000-step study, add both of its values to any command:
+
+```bash
+make figures STEPS=500000 SNAPSHOT_INTERVAL=100000
+make videos STEPS=500000
+```
+
+The training script's own defaults, and the protocol in [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md),
+are still the study's 500,000 steps. Only the `make` defaults changed. Where the steps below give
+times or counts for the 500,000-step study, a 12-million-step run takes about 24 times as long.
 
 ## Contents
 
+- [Default run length](#default-run-length)
 - [What it compares](#what-it-compares)
 - [Quick start](#quick-start)
 - [Step 1: Set up](#step-1-set-up)
@@ -55,7 +77,7 @@ figures and videos:
 ```bash
 make setup     # install everything
 make test      # check the code works
-make study     # train all 20 runs, a little over an hour
+make study     # train all 20 runs for 12 million steps each, many hours
 make status    # confirm that all 20 finished
 make figures   # make the comparison figures
 make videos    # record the learning-phase videos
@@ -346,7 +368,18 @@ grows roughly in line with `STEPS`, so expect:
 |---|---|---|
 | 500,000 | About 3.5 minutes | About 75 minutes |
 | 2,000,000 | About 15 minutes | About 5 hours |
-| 5,000,000 | About 35–45 minutes | About 12–15 hours |
+| 5,000,000 | About 50 minutes | About 17 hours |
+| 12,000,000 (the `make` default) | About 2 hours or more | About 40 hours |
+
+These are one-at-a-time times. A 4.25-million-step test run took 41 minutes. Later training is
+likely slower per step, because better agents play longer evaluation games. With the default
+`JOBS=4`, all 20 runs finish in roughly a quarter of the one-at-a-time time, plus some slowdown
+from sharing the machine: plan on at least 10 hours for 12 million steps. The parallel speedup
+hasn't been measured on full-length runs yet.
+
+At 12 million steps the outputs are larger too, about 1 GB for all 20 runs, mostly W&B and
+TensorBoard logs. With `SNAPSHOT_INTERVAL=2000000` each seed 1 run saves 7 snapshots, at 0, 2, 4, 6,
+8, 10 and 12 million steps, so `make videos` makes 8 videos per variant, including `final.mp4`.
 
 **What changes with `STEPS`:**
 
@@ -485,10 +518,10 @@ Set these after the command, as in `make train VARIANT=ddqn_n5 SEED=2`.
 | `SEEDS` | `1 2 3 4 5` | `study`, `status` | Seeds to include, in quotes |
 | `DEVICE` | `cpu` | Training commands | `cpu` or `mps`. Use `cpu` for the study |
 | `WANDB` | `offline` | `train`, `study` | `offline` or `online`. Trials and pilots are always offline |
-| `STEPS` | `500000` | `train`, `study` | Training steps per run. See [Training for longer](#training-for-longer) |
-| `SNAPSHOT_INTERVAL` | `100000` | `train`, `study` | Steps between model snapshots |
+| `STEPS` | `12000000` | `train`, `study` | Training steps per run. The study used `500000`. See [Training for longer](#training-for-longer) |
+| `SNAPSHOT_INTERVAL` | `2000000` | `train`, `study` | Steps between model snapshots. The study used `100000` |
 | `JOBS` | `4` | `study` | Runs to train at the same time. See [Parallel training](#parallel-training) |
-| `LOG_DIR` | `logs`, or `logs/steps_<STEPS>` if `STEPS` changes | `train`, `study`, `status`, `tensorboard`, `sync`, `figures`, `videos`, `clean-run` | Root folder for run outputs |
+| `LOG_DIR` | `logs/steps_<STEPS>`, or `logs` when `STEPS=500000` | `train`, `study`, `status`, `tensorboard`, `sync`, `figures`, `videos`, `clean-run` | Root folder for run outputs |
 | `RUN` | None | `clean-run` | The run to delete, such as `ddqn_n3_seed1` |
 | `CONFIRM` | None | `clean-results` | Set to `yes` to delete without being asked |
 | `ARGS` | None | `test`, `baseline`, `train`, `study`, `figures`, `videos` | Extra options for the underlying command |
