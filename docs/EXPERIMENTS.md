@@ -78,16 +78,21 @@ that group.
 
 ## 4. Telemetry and output
 
+Each run length has its own results folder, `logs/steps_<total_timesteps>`, such as
+`logs/steps_500000`, because runs of different lengths can't be compared. Paths below are inside it.
+
 | Output | Location |
 |---|---|
-| TensorBoard | `logs/tensorboard/{run_name}` |
-| Weights & Biases | Project `breakout-nstep-ddqn`, local files in `logs/wandb/` |
-| Raw CSV | `logs/csv/{run_name}_metrics.csv` |
-| Final model | `logs/checkpoints/{run_name}.pt` |
-| Model snapshots | `logs/checkpoints/{run_name}/step_{step}.pt` |
-| Videos | `logs/videos/{run_name}/step_{step}.mp4` and `final.mp4` |
-| Ablation figure | `docs/figures/ablation_comparison.png` (300 DPI) |
-| Overestimation figure | `docs/figures/overestimation_evaluation.png` (300 DPI) |
+| TensorBoard | `tensorboard/{run_name}` |
+| Weights & Biases | Project `breakout-nstep-ddqn`, local files in `wandb/` |
+| Raw CSV | `csv/{run_name}_metrics.csv` |
+| Final model | `checkpoints/{run_name}.pt` |
+| Model snapshots | `checkpoints/{run_name}/step_{step}.pt` |
+| Videos | `videos/{run_name}/step_{step}.mp4` and `final.mp4` |
+| Ablation figure | `figures/ablation_comparison.png` (300 DPI) |
+| Overestimation figure | `figures/overestimation_evaluation.png` (300 DPI) |
+
+To commit a figure for a report, copy it into `docs/figures/` and add it with `git add -f`.
 
 Each CSV row is an episode row, a train row or an evaluation row; columns that do not apply
 are empty. See the module docstring of `src/utils/logger.py`.
@@ -123,24 +128,27 @@ document's tables and `TrainConfig` if a setting changes.
 | 1 (2026-11-01) | None | 17.04 | 15.45 | 1.29 (threshold 2.58) | Pass |
 
 Each pilot took about 195 seconds on the development MacBook Air M4 with `--device cpu`,
-including evaluation. The full study, run one at a time, took 74 minutes.
+including evaluation. The full 500,000-step study, run one at a time, took 74 minutes. Its result
+files have since been deleted; the summary below is the record of it.
+
+| Variant | Final 100-episode return, mean of 5 seeds | Range across seeds |
+|---|---|---|
+| `dqn_n1` | 14.6 | 12.2 to 16.9 |
+| `ddqn_n1` | 13.4 | 10.7 to 16.8 |
+| `ddqn_n3` | 20.1 | 15.5 to 22.7 |
+| `ddqn_n5` | 22.1 | 20.2 to 24.4 |
 
 ## 6. Running the study
 
 Run these commands once the pilot has passed:
 
 ```bash
-for config in dqn_n1 ddqn_n1 ddqn_n3 ddqn_n5; do
-  for seed in 1 2 3 4 5; do
-    uv run python -m scripts.train --variant "$config" --seed "$seed" --device cpu
-  done
-done
-
+uv run python -m scripts.study --jobs 4
 uv run python -m scripts.plot_results
 ```
 
-Add `--wandb-mode offline` to run without network access, then upload the results
-with `wandb sync logs/wandb/offline-run-*`.
+`make study` and `make figures` do the same, at the `make` default of 12 million steps unless
+`STEPS` is set. Runs are offline by default; upload them afterward with `make sync`.
 
 If a run crashes, delete its CSV, TensorBoard folder and any checkpoints, then restart it from
 step 0. Each reported result comes from one uninterrupted process.
@@ -168,7 +176,7 @@ device for every run in the study.
 
 ## 7. Figures
 
-`scripts/plot_results.py` reads every CSV in `logs/csv/`.
+`scripts/plot_results.py` reads every CSV in one run length's `csv/` folder.
 
 `ablation_comparison.png` has two panels:
 

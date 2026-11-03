@@ -3,32 +3,30 @@
 A reinforcement learning study of whether **n-step returns improve Double DQN** on Atari
 Breakout, using the game's 128 bytes of RAM as the observation instead of pixels.
 
-> **Status: the 500,000-step study is complete, with results in `logs/`. The `make` commands now
-> default to 12 million steps per run, with a snapshot every 2 million, saved in
-> `logs/steps_12000000`.** See [Default run length](#default-run-length).
+> **Status: implemented, and the pilot passed. The `make` commands train for 12 million steps per
+> run, with a snapshot every 2 million.** See [Run length and results folders](#run-length-and-results-folders).
 
-## Default run length
+## Run length and results folders
 
-| Setting | `make` default | The finished study |
+Every run length gets its own results folder, `logs/steps_<STEPS>`, because runs of different
+lengths can't be compared. With the `make` defaults, everything goes in `logs/steps_12000000`:
+
+| Setting | `make` default | Set it with |
 |---|---|---|
-| `STEPS` | `12000000` | `500000` |
-| `SNAPSHOT_INTERVAL` | `2000000` | `100000` |
-| Results folder | `logs/steps_12000000` | `logs/` |
+| Steps per run | 12,000,000 | `STEPS=500000` |
+| Steps between snapshots | 2,000,000 | `SNAPSHOT_INTERVAL=100000` |
+| Results folder | `logs/steps_12000000` | Follows `STEPS`, or set `LOG_DIR` |
 
-To work with the finished 500,000-step study, add both of its values to any command:
+Pass the same `STEPS` to every command for that run length, such as `make status STEPS=500000`.
+The paths in this README show the `make` default folder.
 
-```bash
-make figures STEPS=500000 SNAPSHOT_INTERVAL=100000
-make videos STEPS=500000
-```
-
-The training script's own defaults, and the protocol in [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md),
-are still the study's 500,000 steps. Only the `make` defaults changed. Where the steps below give
-times or counts for the 500,000-step study, a 12-million-step run takes about 24 times as long.
+The training script's own default, and the protocol in [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md),
+are still 500,000 steps; only the `make` defaults are 12 million. A 500,000-step study was run, with
+results in [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md), and its files have since been deleted.
 
 ## Contents
 
-- [Default run length](#default-run-length)
+- [Run length and results folders](#run-length-and-results-folders)
 - [What it compares](#what-it-compares)
 - [Quick start](#quick-start)
 - [Step 1: Set up](#step-1-set-up)
@@ -203,8 +201,8 @@ changes. See [Parallel training](#parallel-training).
 stop it with `Ctrl+C`. This prevents idle sleep, but closing the lid can still put the Mac to sleep.
 
 **What you'll see:** one line when each run starts and one when it finishes or fails, then a
-summary from `make status`. Each run's full output goes to its own file in `logs/run_logs/`, such as
-`logs/run_logs/ddqn_n3_seed1.log`, so parallel runs never mix their output.
+summary from `make status`. Each run's full output goes to its own file in
+`logs/steps_12000000/run_logs/`, such as `ddqn_n3_seed1.log`, so parallel runs never mix their output.
 
 **If it stops partway:** run `make study` again. It skips runs that already finished. A run that
 stopped partway won't restart by itself, because its results are protected from being overwritten.
@@ -272,19 +270,24 @@ see the agents play, use the videos in step 8.
 make figures
 ```
 
-This reads `logs/csv/`, prints a summary table and writes two figures:
+This reads `logs/steps_12000000/csv/`, prints a summary table and writes two figures to
+`logs/steps_12000000/figures/`:
 
 | Figure | What it shows |
 |---|---|
-| `docs/figures/ablation_comparison.png` | Panel A: episodic return. Panel B: mean predicted Q-value |
-| `docs/figures/overestimation_evaluation.png` | Predicted value against actual return, one panel per variant |
+| `ablation_comparison.png` | Panel A: episodic return. Panel B: mean predicted Q-value |
+| `overestimation_evaluation.png` | Predicted value against actual return, one panel per variant |
 
-Check the `last step` column in the summary table. Every variant should be close to 500,000. A much
-lower number means a run stopped early and cut that variant's curves short.
+Check the `last step` column in the summary table. Every variant should be close to the run length,
+12,000,000 by default. A much lower number means a run stopped early and cut that variant's curves
+short.
 
-Git ignores PNG files, so to commit the figures use `git add -f`:
+Git ignores `logs/` and PNG files. To commit the figures for a report, copy them into
+`docs/figures/` and add them with `git add -f`:
 
 ```bash
+mkdir -p docs/figures
+cp logs/steps_12000000/figures/*.png docs/figures/
 git add -f docs/figures/ablation_comparison.png docs/figures/overestimation_evaluation.png
 ```
 
@@ -295,18 +298,19 @@ make videos
 ```
 
 This takes seed 1 of each variant and records one game per saved model, with no window and no
-retraining. It should take less than a minute in total and print a table of each video's length and
-score. You get 7 videos per variant, 28 in total:
+retraining. It prints a table of each video's length and score. With the defaults you get 8 videos
+per variant, 32 in total:
 
 ```text
-logs/videos/ddqn_n3_seed1/
+logs/steps_12000000/videos/ddqn_n3_seed1/
 ├── step_000000.mp4   Untrained
-├── step_100000.mp4
-├── step_200000.mp4
-├── step_300000.mp4
-├── step_400000.mp4
-├── step_500000.mp4
-└── final.mp4         The same model as step_500000, playing a different game
+├── step_2000000.mp4
+├── step_4000000.mp4
+├── step_6000000.mp4
+├── step_8000000.mp4
+├── step_10000000.mp4
+├── step_12000000.mp4
+└── final.mp4         The same model as step_12000000, playing a different game
 ```
 
 **Reading the videos:**
@@ -334,7 +338,7 @@ command records only `final.mp4`, and it warns about variants without a pilot.
 To capture other seeds or phases, set this **before training**. Snapshots can't be added afterward:
 
 ```bash
-make train VARIANT=ddqn_n3 SEED=2 SNAPSHOT_INTERVAL=50000 ARGS="--snapshot-seeds 1 2"
+make train VARIANT=ddqn_n3 SEED=2 SNAPSHOT_INTERVAL=1000000 ARGS="--snapshot-seeds 1 2"
 ```
 
 Saving snapshots doesn't change learning. A repeat of the `ddqn_n3` seed 0 pilot with snapshots on
@@ -342,26 +346,26 @@ gave a byte-identical metrics CSV.
 
 ## Training for longer
 
-The study's 500,000-step runs are complete and frozen. To see how far the agents get with more
-training, set `STEPS`, and optionally `SNAPSHOT_INTERVAL`:
+`STEPS` sets the length of every run, and `SNAPSHOT_INTERVAL` how often a model snapshot is saved:
 
 ```bash
-make train VARIANT=ddqn_n5 SEED=1 STEPS=5000000 SNAPSHOT_INTERVAL=500000
+make study STEPS=5000000 SNAPSHOT_INTERVAL=500000
 ```
 
-**Where the results go:** any `STEPS` other than 500,000 automatically uses its own folder,
-`logs/steps_<STEPS>`, such as `logs/steps_5000000`. This keeps longer runs from mixing with the
-study, and stops `make study` from skipping them as already finished. Pass the same `STEPS` to the
-other commands so they read that folder:
+**Where the results go:** each `STEPS` value has its own folder, `logs/steps_<STEPS>`, such as
+`logs/steps_5000000`. Runs of different lengths never mix, and `make study` only skips runs of the
+same length that already finished. Pass the same `STEPS` to the other commands so they read that
+folder:
 
 ```bash
 make status STEPS=5000000
-make videos STEPS=5000000 VARIANTS=ddqn_n5
-make figures STEPS=5000000   # writes to logs/steps_5000000/figures, not docs/figures
+make videos STEPS=5000000
+make figures STEPS=5000000   # writes to logs/steps_5000000/figures
 make tensorboard STEPS=5000000
 ```
 
-**How long it takes:** the study's runs took 3.2 to 4.8 minutes each, 74 minutes for all 20. Time
+**How long it takes:** the 500,000-step study's runs took 3.2 to 4.8 minutes each, 74 minutes for
+all 20, one at a time. Time
 grows roughly in line with `STEPS`, so expect:
 
 | `STEPS` | One run | All 20 runs |
@@ -387,17 +391,16 @@ TensorBoard logs. With `SNAPSHOT_INTERVAL=2000000` each seed 1 run saves 7 snaps
   steps it reaches 0.05 at step 500,000 instead of 50,000.
 - **Logging:** evaluation still runs every 25,000 steps, so 5 million steps gives 200 evaluation
   points.
-- **Snapshots:** one at the start plus one every `SNAPSHOT_INTERVAL` steps. The default of 100,000
-  would give 51 snapshots, and 51 videos, for a 5-million-step run, so raise it for long runs.
-  `SNAPSHOT_INTERVAL=500000` gives 11.
+- **Snapshots:** one at the start plus one every `SNAPSHOT_INTERVAL` steps, so the number of videos
+  is `STEPS / SNAPSHOT_INTERVAL + 2`, counting `final.mp4`. Keep it to about 10 or fewer by raising
+  `SNAPSHOT_INTERVAL` with `STEPS`.
 
-**Comparing results:** runs of different lengths can't be compared directly. To compare all four
-variants at a new length, run the full study at that length with `make study STEPS=<N>`, and
-report it separately from the 500,000-step study.
+**Comparing results:** runs of different lengths can't be compared directly. Compare the four
+variants within one run length, and report each length separately.
 
-**Winning the game:** clearing both walls is worth 864 points. The study's best variant averages
-about 22 points per game, and more training is unlikely to get close to clearing the wall with this
-setup.
+**Winning the game:** clearing both walls is worth 864 points. At 500,000 steps the best variant
+averaged about 22 points per game, and a single `ddqn_n5` run averaged about 90 at 4 million steps,
+with a best game of 392. More training helps, but this setup is unlikely to clear both walls.
 
 ## Parallel training
 
@@ -426,7 +429,7 @@ under long, heavy load, so the speedup is less than the number of jobs. Each run
 hundred MB of memory.
 
 **Output:** the terminal shows one line when each run starts and one when it finishes or fails, with
-how long it took. Each run's full output goes to `logs/run_logs/{variant}_seed{seed}.log`.
+how long it took. Each run's full output goes to `logs/steps_<STEPS>/run_logs/{variant}_seed{seed}.log`.
 
 **Timing:** at the end, `make study` prints a table of training time per variant and in total:
 
@@ -443,7 +446,7 @@ The numbers above are an illustration, not a measurement. The first figure is ho
 took; the second is the runs' times added up, which is larger when runs overlap. Runs trained in
 parallel each take a little longer than they would alone, because they share the machine. Runs
 skipped as already finished aren't included. Every run's time is also appended to
-`logs/run_logs/timings.csv` as soon as it ends, so the record survives an interruption and builds up
+`logs/steps_<STEPS>/run_logs/timings.csv` as soon as it ends, so the record survives an interruption and builds up
 across invocations.
 
 **Stopping:** `Ctrl+C` stops every run that's training. Those runs then show as incomplete in
@@ -457,15 +460,18 @@ such as `--total-timesteps`, which it applies to every run. Run
 
 | Output | Location |
 |---|---|
-| Raw metrics | `logs/csv/{variant}_seed{seed}_metrics.csv` |
-| TensorBoard | `logs/tensorboard/{variant}_seed{seed}/` |
-| W&B | Project `breakout-nstep-ddqn`, with local files in `logs/wandb/` |
-| Final model | `logs/checkpoints/{variant}_seed{seed}.pt` |
-| Model snapshots (seed 1) | `logs/checkpoints/{variant}_seed1/step_{step}.pt` |
-| Videos (seed 1) | `logs/videos/{variant}_seed1/` |
-| Training output, one file per run from `make study` | `logs/run_logs/{variant}_seed{seed}.log` |
-| Pilot runs | `logs/pilot/` |
-| Figures | `docs/figures/` |
+| Raw metrics | `csv/{variant}_seed{seed}_metrics.csv` |
+| TensorBoard | `tensorboard/{variant}_seed{seed}/` |
+| W&B | Project `breakout-nstep-ddqn`, with local files in `wandb/` |
+| Final model | `checkpoints/{variant}_seed{seed}.pt` |
+| Model snapshots (seed 1) | `checkpoints/{variant}_seed1/step_{step}.pt` |
+| Videos (seed 1) | `videos/{variant}_seed1/` |
+| Training output, one file per run | `run_logs/{variant}_seed{seed}.log` |
+| Training times | `run_logs/timings.csv` |
+| Figures | `figures/` |
+
+All of these are inside the run length's folder, `logs/steps_<STEPS>/`, such as
+`logs/steps_12000000/csv/`. Pilot runs are in `logs/pilot/`, and the trial run in `logs/smoke/`.
 
 Git ignores `logs/`, `*.csv`, `*.pt` and `*.png`, so keep copies of any results you need.
 
@@ -501,7 +507,7 @@ Run `make help` to see this list in your terminal.
 | `make status` | Show which study runs are finished, incomplete or not started |
 | `make tensorboard` | Open training charts at <http://localhost:6006> |
 | `make sync` | Upload offline runs to W&B |
-| `make figures` | Make the figures from `LOG_DIR`'s runs; `docs/figures` for the study |
+| `make figures` | Make the figures from `LOG_DIR`'s runs, saved in `LOG_DIR/figures` |
 | `make videos` | Record videos of each variant's saved models |
 | `make clean-run RUN=name` | Delete one run's results so it can be redone |
 | `make clean-results` | Delete every result in `LOG_DIR` so training can start over, after asking |
@@ -518,10 +524,10 @@ Set these after the command, as in `make train VARIANT=ddqn_n5 SEED=2`.
 | `SEEDS` | `1 2 3 4 5` | `study`, `status` | Seeds to include, in quotes |
 | `DEVICE` | `cpu` | Training commands | `cpu` or `mps`. Use `cpu` for the study |
 | `WANDB` | `offline` | `train`, `study` | `offline` or `online`. Trials and pilots are always offline |
-| `STEPS` | `12000000` | `train`, `study` | Training steps per run. The study used `500000`. See [Training for longer](#training-for-longer) |
-| `SNAPSHOT_INTERVAL` | `2000000` | `train`, `study` | Steps between model snapshots. The study used `100000` |
+| `STEPS` | `12000000` | All run commands | Training steps per run, which also picks the results folder. See [Training for longer](#training-for-longer) |
+| `SNAPSHOT_INTERVAL` | `2000000` | `train`, `study` | Steps between model snapshots |
 | `JOBS` | `4` | `study` | Runs to train at the same time. See [Parallel training](#parallel-training) |
-| `LOG_DIR` | `logs/steps_<STEPS>`, or `logs` when `STEPS=500000` | `train`, `study`, `status`, `tensorboard`, `sync`, `figures`, `videos`, `clean-run` | Root folder for run outputs |
+| `LOG_DIR` | `logs/steps_<STEPS>` | `train`, `study`, `status`, `tensorboard`, `sync`, `figures`, `videos`, `clean-run` | Root folder for run outputs |
 | `RUN` | None | `clean-run` | The run to delete, such as `ddqn_n3_seed1` |
 | `CONFIRM` | None | `clean-results` | Set to `yes` to delete without being asked |
 | `ARGS` | None | `test`, `baseline`, `train`, `study`, `figures`, `videos` | Extra options for the underlying command |
@@ -565,6 +571,7 @@ These are the frozen study settings. Change them only for trial runs or a new pi
 
 | Option | Default | Meaning |
 |---|---|---|
+| `--steps` | `500000` | Run length, which sets the default folder `logs/steps_<steps>` |
 | `--max-seconds` | `180` | Longest video |
 | `--fps` | `30` | Frames per second. `15` is real game speed |
 | `--epsilon` | `0.01` | Random move rate |
@@ -575,9 +582,10 @@ These are the frozen study settings. Change them only for trial runs or a new pi
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--csv-dir` | `logs/csv` | Folder holding the run CSVs |
-| `--output` | `docs/figures/ablation_comparison.png` | Comparison figure path |
-| `--overestimation-output` | `docs/figures/overestimation_evaluation.png` | Overestimation figure path |
+| `--steps` | `500000` | Run length, which sets the default folders below |
+| `--csv-dir` | `logs/steps_<steps>/csv` | Folder holding the run CSVs |
+| `--output` | `logs/steps_<steps>/figures/ablation_comparison.png` | Comparison figure path |
+| `--overestimation-output` | `logs/steps_<steps>/figures/overestimation_evaluation.png` | Overestimation figure path |
 | `--window` | `100` | Rolling window, in episodes |
 | `--min-periods` | `10` | Fewest episodes needed to draw a point |
 | `--grid-points` | `500` | Points per curve |
@@ -621,12 +629,10 @@ make study
 ```
 
 `make clean-results` lists what it will delete, with sizes, and deletes nothing unless you type
-`yes`. It removes the metrics, TensorBoard logs, models, snapshots, W&B files, videos and run logs
-in `logs/`. It keeps:
-
-- `logs/pilot`, the recorded pilot
-- longer runs in `logs/steps_<STEPS>`. Clean one with `make clean-results STEPS=<STEPS>`
-- `docs/figures`, which you may have committed. Run `make figures` after retraining to replace them
+`yes`. It removes the metrics, TensorBoard logs, models, snapshots, W&B files, videos, run logs and
+figures in the run length's folder, `logs/steps_12000000` by default. Everything outside that folder
+is kept, including `logs/pilot` and other run lengths. Clean another length with
+`make clean-results STEPS=<STEPS>`.
 
 It refuses to run while training is still writing to that folder. In a script, where it can't ask,
 use `make clean-results CONFIRM=yes`. Online runs already uploaded to W&B stay there; delete those on
@@ -659,7 +665,7 @@ variant's curves to the step where it failed, which you can see in the `last ste
 | Training is slow | Keep `DEVICE=cpu`, the default |
 | `no_models_found` or `no_videos_recorded` from `make videos` | Train first, or check `SEED` and `LOG_DIR`. Models must be in `{LOG_DIR}/checkpoints/` |
 | `make videos` records only `final.mp4` | That run had no snapshots. Only seeds in `--snapshot-seeds` save them, and only during training |
-| `no_recognized_runs` from `make figures` | No CSVs in `logs/csv`. Train first. Pilot results are in `logs/pilot/csv` and aren't used |
+| `no_recognized_runs` from `make figures` | No CSVs for that run length. Train first, or check `STEPS`. Pilot results are in `logs/pilot/csv` and aren't used |
 | `skipping_unrecognized_run` from `make figures` | CSV names must look like `{variant}_seed{N}_metrics.csv` |
 | `ConfigurationError` | An option has an invalid value. The message says which one |
 | `wandb` asks you to log in | Use the default `WANDB=offline`, or run `make wandb-login` |

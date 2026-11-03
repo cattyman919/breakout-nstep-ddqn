@@ -282,12 +282,15 @@ namespace package: `from src.utils.logger import DualLogger`.
 - All training metrics go through `DualLogger`, never directly to a single sink.
 - The training loop averages TD loss and mean $Q$ over 100 updates before calling
   `log_train_step`. Evaluation results go through `log_eval`.
+- Each run length has its own results folder, `logs/steps_<total_timesteps>`, which is
+  `TrainConfig`'s default `log_dir` and the Makefile's default `LOG_DIR`. Never mix run lengths in
+  one folder.
 - Pilot runs use `--log-dir logs/pilot`, so `scripts/plot_results.py` never reads them. Follow
   the pilot procedure in `docs/EXPERIMENTS.md` section 5 before starting study runs.
 - Run names are `{variant}_seed{seed}`. `scripts/plot_results.py` parses this format
-  from `logs/csv/{run_name}_metrics.csv` and skips files that do not match.
+  from `logs/steps_<N>/csv/{run_name}_metrics.csv` and skips files that do not match.
 - `DualLogger` refuses to overwrite an existing CSV unless `overwrite=True`. Do not
   pass that flag for ablation runs.
-- `.gitignore` excludes `*.png`, `*.csv` and `*.pt`, so the figures in `docs/figures/` are
-  untracked. To commit a report figure, use `git add -f`, for example
-  `git add -f docs/figures/ablation_comparison.png`.
+- `.gitignore` excludes `*.png`, `*.csv` and `*.pt`. Figures are written to
+  `logs/steps_<N>/figures/`. To commit a report figure, copy it into `docs/figures/` and use
+  `git add -f`, for example `git add -f docs/figures/ablation_comparison.png`.

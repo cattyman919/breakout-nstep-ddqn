@@ -177,6 +177,10 @@ Networks and buffers raise the built-in `ValueError` when a caller passes bad in
 
 ### `scripts/train.py`
 
+- **`steps_log_dir`:** returns the default results folder for a run length,
+  `logs/steps_<total_timesteps>`. `TrainConfig.output_dir` uses it when `log_dir` isn't set, and
+  `plot_results.py` and `record_videos.py` use it for their `--steps` option, so every script agrees
+  on where a run length's results are. `{log_dir}` below means this folder.
 - **`TrainConfig`:** holds every hyperparameter in a frozen dataclass, which `tyro` turns into
   command-line options. `__post_init__` rejects invalid values.
 - **`train`:** the loop described above. Its `env_factory` argument lets tests swap in a scripted
