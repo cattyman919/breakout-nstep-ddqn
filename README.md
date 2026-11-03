@@ -18,6 +18,7 @@ Breakout, using the game's 128 bytes of RAM as the observation instead of pixels
 - [Step 7: Make the figures](#step-7-make-the-figures)
 - [Step 8: Record the videos](#step-8-record-the-videos)
 - [Training for longer](#training-for-longer)
+- [Parallel training](#parallel-training)
 - [Output files](#output-files)
 - [Make commands](#make-commands)
 - [Troubleshooting](#troubleshooting)
@@ -166,20 +167,30 @@ To measure only the baseline, run `make baseline`.
 make study
 ```
 
-**How long it takes:** each run took about 3 minutes in the pilot on an M4 MacBook Air, so all 20
-should take a little over an hour. The runs execute one at a time.
+**How long it takes:** run one at a time, the 20 runs took 74 minutes on an M4 MacBook Air, about
+3.5 minutes each.
+
+**Training several runs at once:** set `JOBS` to train that many runs in parallel:
+
+```bash
+make study JOBS=4
+```
+
+Each run uses one CPU core, so `JOBS=4` matches the M4's 4 performance cores. Results are identical
+either way: each run's metrics come out byte for byte the same as when trained alone. Only the speed
+changes. See [Parallel training](#parallel-training) for how much faster it is.
 
 **Keep the Mac awake:** in a second terminal, run `caffeinate -i` until training finishes, then
 stop it with `Ctrl+C`. This prevents idle sleep, but closing the lid can still put the Mac to sleep.
 
-**What you'll see:** a heading for each run, then one JSON line for each diagnostic event, such as
-`run_started`, `evaluation_finished` and `run_finished`, mixed with plain text from W&B and the game
-emulator. Everything is also saved to `logs/study.log`.
+**What you'll see:** one line when each run starts and one when it finishes or fails, then a
+summary from `make status`. Each run's full output goes to its own file in `logs/run_logs/`, such as
+`logs/run_logs/ddqn_n3_seed1.log`, so parallel runs never mix their output.
 
 **If it stops partway:** run `make study` again. It skips runs that already finished. A run that
 stopped partway won't restart by itself, because its results are protected from being overwritten.
-`make study` carries on with the other runs, then lists the ones that didn't finish and exits with
-an error. See [Troubleshooting](#troubleshooting) for what to do with them.
+`make study` carries on with the other runs, marks the failed ones as `FAILED` with the path to
+their log, and exits with an error. See [Troubleshooting](#troubleshooting) for what to do with them.
 
 **Keep these rules for the study:**
 
@@ -358,6 +369,41 @@ report it separately from the 500,000-step study.
 about 22 points per game, and more training is unlikely to get close to clearing the wall with this
 setup.
 
+## Parallel training
+
+`make study` can train several runs at the same time:
+
+```bash
+make study JOBS=4
+```
+
+Without Make, the same command is:
+
+```bash
+uv run python -m scripts.study --jobs 4
+```
+
+**How it works:** `scripts/study.py` starts each run as its own `scripts.train` process, up to `JOBS`
+at once, and starts the next as soon as one finishes. Each run uses one CPU core.
+
+**Results don't change:** a run's results are identical whether it trains alone or beside others.
+Training the same four runs both ways gave metrics files that were identical byte for byte. Only the time taken changes.
+
+**Choosing `JOBS`:** the M4 has 4 performance cores and 6 efficiency cores, so `JOBS=4` is a good
+starting point. More jobs use the slower efficiency cores. A MacBook Air has no fan and slows down
+under long, heavy load, so the speedup is less than the number of jobs. Each run also needs a few
+hundred MB of memory.
+
+**Output:** the terminal shows one line when each run starts and one when it finishes or fails. Each
+run's full output goes to `logs/run_logs/{variant}_seed{seed}.log`.
+
+**Stopping:** `Ctrl+C` stops every run that's training. Those runs then show as incomplete in
+`make status`, and each needs `make clean-run RUN=<name>` before `make study` can retrain it.
+
+**Options:** `scripts.study` accepts `--variants`, `--seeds` and `--jobs`, plus every training option,
+such as `--total-timesteps`, which it applies to every run. Run
+`uv run python -m scripts.study --help` for its own options.
+
 ## Output files
 
 | Output | Location |
@@ -368,7 +414,7 @@ setup.
 | Final model | `logs/checkpoints/{variant}_seed{seed}.pt` |
 | Model snapshots (seed 1) | `logs/checkpoints/{variant}_seed1/step_{step}.pt` |
 | Videos (seed 1) | `logs/videos/{variant}_seed1/` |
-| Training log, if you use `tee` | `logs/study.log` |
+| Training output, one file per run from `make study` | `logs/run_logs/{variant}_seed{seed}.log` |
 | Pilot runs | `logs/pilot/` |
 | Figures | `docs/figures/` |
 
@@ -402,7 +448,7 @@ Run `make help` to see this list in your terminal.
 | `make pilot` | Run the baseline and the two seed-0 pilots in `logs/pilot` |
 | `make pilot-clean` | Delete the pilot's results so it can be repeated |
 | `make train` | Train one run, chosen with `VARIANT` and `SEED` |
-| `make study` | Train all 20 runs, skipping finished ones |
+| `make study` | Train all 20 runs, skipping finished ones; `JOBS=4` trains 4 at a time |
 | `make status` | Show which study runs are finished, incomplete or not started |
 | `make tensorboard` | Open training charts at <http://localhost:6006> |
 | `make sync` | Upload offline runs to W&B |
@@ -424,6 +470,7 @@ Set these after the command, as in `make train VARIANT=ddqn_n5 SEED=2`.
 | `WANDB` | `offline` | `train`, `study` | `offline` or `online`. Trials and pilots are always offline |
 | `STEPS` | `500000` | `train`, `study` | Training steps per run. See [Training for longer](#training-for-longer) |
 | `SNAPSHOT_INTERVAL` | `100000` | `train`, `study` | Steps between model snapshots |
+| `JOBS` | `1` | `study` | Runs to train at the same time. See [Parallel training](#parallel-training) |
 | `LOG_DIR` | `logs`, or `logs/steps_<STEPS>` if `STEPS` changes | `train`, `study`, `status`, `tensorboard`, `sync`, `figures`, `videos`, `clean-run` | Root folder for run outputs |
 | `RUN` | None | `clean-run` | The run to delete, such as `ddqn_n3_seed1` |
 | `ARGS` | None | `test`, `baseline`, `train`, `study`, `figures`, `videos` | Extra options for the underlying command |
@@ -500,6 +547,7 @@ example:
 
 ```bash
 uv run python -m scripts.train --variant ddqn_n3 --seed 1 --device cpu --wandb-mode offline
+uv run python -m scripts.study --jobs 4
 ```
 
 ## Troubleshooting
@@ -601,6 +649,7 @@ automatically, run `make format`.
 │   └── utils/logger.py    TensorBoard, W&B and CSV logging; JSON diagnostics
 ├── scripts/
 │   ├── train.py           Config, CLI and training loop
+│   ├── study.py           Trains many runs, several at a time
 │   ├── measure_random.py  Random-policy baseline
 │   ├── plot_results.py    Comparison and overestimation figures
 │   └── record_videos.py   Videos of saved models playing

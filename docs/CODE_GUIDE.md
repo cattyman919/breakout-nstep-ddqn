@@ -31,6 +31,7 @@ scripts/train.py            Runs the training loop and saves the final model
 ├── src/evaluation.py       Measures predicted values against returns earned
 └── src/utils/logger.py     Writes metrics and JSON diagnostics
 
+scripts/study.py            Trains many runs, several at a time
 scripts/measure_random.py   Plays random games for the pilot baseline
 scripts/plot_results.py     Reads the CSVs and draws the figures
 scripts/record_videos.py    Records saved models playing the game
@@ -188,6 +189,22 @@ Networks and buffers raise the built-in `ValueError` when a caller passes bad in
   `snapshot_interval` steps. Only runs whose seed is in `snapshot_seeds` save these (seed 1 by
   default). It only reads the weights, so it can't change training.
 
+### `scripts/study.py`
+
+Trains every combination of `--variants` and `--seeds`, up to `--jobs` runs at once. Any other option
+is parsed as a `TrainConfig` and applied to every run, so invalid settings fail before training
+starts.
+
+- **`plan_runs`:** splits the runs into finished ones, which have a final model, and ones still to
+  train.
+- **`to_cli_args`:** turns a `TrainConfig` back into `scripts.train` options, so each process gets
+  exactly the validated settings. A test checks that the options recreate the same config.
+- **`run_study`:** runs `train_in_subprocess` for each pending run from a thread pool, and collects
+  which runs finished or failed. Tests pass in a fake training function in its place.
+
+Each run is a separate process using one CPU core, so parallel runs can't affect each other's
+results.
+
 ### `scripts/measure_random.py`
 
 Plays 100 games with a uniform random policy and automatic FIRE, then prints the mean return and
@@ -234,6 +251,7 @@ makes rare cases such as truncation easy to trigger and exact results easy to ch
 | `test_train.py` | Schedule counts, replay contents, reproducibility, failure cleanup |
 | `test_measure_random.py` | Baseline returns and FIRE presses |
 | `test_plot_results.py` | Run discovery, seed averaging, figure output |
+| `test_study.py` | Skipping finished runs, the parallel limit, failures, option passing |
 | `test_record_videos.py` | Finding models, frame counts, the length limit, game seeds |
 
 ## Where to make common changes

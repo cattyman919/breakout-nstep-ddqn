@@ -54,7 +54,7 @@ runs once the pilot in section 5 passes.
 | Training metric logging | Mean over every 100 updates; a final partial batch is dropped | Gives $1{,}225$ rows per run and about 1% of the disk use of per-update logging |
 | Evaluation | Every $25{,}000$ steps: 5 games at $\epsilon = 0.01$ | Gives 20 evaluations per run; low $\epsilon$ stays close to greedy while escaping stuck states |
 | Checkpoints | Final model; snapshots for seed 1 at the start and every $100{,}000$ steps | A crashed run is deleted and restarted from step 0. Snapshots exist only to make videos, and don't change results |
-| CPU threads | `torch.set_num_threads(1)` | Reproducible timing and results; runs execute one at a time |
+| CPU threads | `torch.set_num_threads(1)` | Reproducible results. Each run uses one core, so runs can train in parallel with `make study JOBS=N`; a run's results are identical either way, and only its speed changes |
 | Unfinished game at the last step | Not logged | Its return is incomplete |
 
 The sticky-action probability ($0.25$) and frame skip ($4$) are environment defaults.
@@ -123,7 +123,7 @@ document's tables and `TrainConfig` if a setting changes.
 | 1 (2026-11-01) | None | 17.04 | 15.45 | 1.29 (threshold 2.58) | Pass |
 
 Each pilot took about 195 seconds on the development MacBook Air M4 with `--device cpu`,
-including evaluation, so the 20-run study should take a little over an hour. Run one at a time.
+including evaluation. The full study, run one at a time, took 74 minutes.
 
 ## 6. Running the study
 
