@@ -14,7 +14,7 @@ DEVICE ?= cpu
 WANDB ?= offline
 STEPS ?= 500000
 SNAPSHOT_INTERVAL ?= 100000
-JOBS ?= 1
+JOBS ?= 4
 ARGS ?=
 
 # Runs of a different length get their own folder, so they never mix with the 500,000-step study.
