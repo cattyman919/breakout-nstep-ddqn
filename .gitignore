@@ -3,4 +3,5 @@ logs/
 __pycache__/
 *.csv
 *.pt
+report
 *.png

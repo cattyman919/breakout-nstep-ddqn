@@ -762,6 +762,7 @@ automatically, run `make format`.
 
 ## Further reading
 
+- [`docs/results/steps_15000000.md`](docs/results/steps_15000000.md): results of the 15-million-step study
 - [`docs/CODE_GUIDE.md`](docs/CODE_GUIDE.md): how the code is organized and how a run works
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): the math and implementation rules
 - [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md): the full protocol and how to interpret results
